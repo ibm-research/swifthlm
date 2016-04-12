@@ -84,47 +84,7 @@ provided below in section "External Interface and Usage Examples".
 3. Install
 ===============================================
 
-  a) If Swift is installed from source
-
-    # cp ./swift-hlm-middleware/hlm.py /opt/swift/swift/common/middleware/
-    # cd /opt/swift; python setup.py install; 
-
-    Then patch /usr/lib/python2.7/site-packages/swift-2.5.1.dev1-py2.7.egg-info/entry_points.txt:
-    (Note: depending on your Swift version, directory name swift-2.5.1.dev1-py2.7.egg-info may be different)
-
-    # diff -u entry_points.txt.before_patch entry_points.txt
-    --- entry_points.txt.before_patch       2016-01-13 08:38:27.605643000 +0100
-    +++ entry_points.txt    2016-01-13 13:03:20.124895331 +0100
-    @@ -31,4 +31,5 @@
-     cname_lookup = swift.common.middleware.cname_lookup:filter_factory
-     recon = swift.common.middleware.recon:filter_factory
-     slo = swift.common.middleware.slo:filter_factory
-    +hlm = swift.common.middleware.hlm:filter_factory
-
-  b) If Swift installed as part of Spectrum Scale 4.1.1 and later:
-
-    # cp hlm.py /usr/lib/python2.7/site-packages/swift/common/middleware )
-
-    # cat <<EOF >py_compile.sh 
-    >  #!/bin/sh
-    >  python /usr/lib64/python2.7/py_compile.py $1
-    > python -O /usr/lib64/python2.7/py_compile.py $1 
-    > EOF
-
-    # ./py_compile.sh /usr/lib/python2.7/site-packages/swift/common/middleware/hlm.py
-
-    Then patch /usr/lib/python2.7/site-packages/swift-2.3.0.2.gfe4cdb5-py2.7.egg-info/entry_points.txt :
-    (Note: depending on your Swift version, directory name swift-2.3.0.2.gfe4cdb5-py2.7.egg-info may be different)
-
-    # diff -u entry_points.txt.orig entry_points.txt
-    --- entry_points.txt.orig			       2015-12-03 17:54:47.925729144 +0100
-    +++ entry_points.txt				       2015-12-03 17:55:14.140090506 +0100
-    @@ -30,4 +30,5 @@
-     tempauth = swift.common.middleware.tempauth:filter_factory
-     tempurl = swift.common.middleware.tempurl:filter_factory
-     xprofile = swift.common.middleware.xprofile:filter_factory
-    +hlm = swift.common.middleware.hlm:filter_factory
-    )
+    # python setup.py install
 
 
 4. Configure
@@ -139,13 +99,13 @@ provided below in section "External Interface and Usage Examples".
     Add a new section:
       # High latency media (hlm) middleware
       [filter:hlm]
-      use = egg:swift#hlm
+      use = egg:swifthlm#swifthlm
 
   b) If Swift installed as part of Spectrum Scale 4.1.1 and later:
 
     # mmces service stop OBJ --all
     # mmobj config change --ccrfile proxy-server.conf --section pipeline:main --property pipeline --value "healthcheck cache formpost tempurl swift3 s3token authtoken keystoneauth container-quotas account-quotas staticweb bulk slo dlo hlm proxy-server"
-    # mmobj config change --ccrfile proxy-server.conf --section filter:hlm --property use --value egg:swift#hlm
+    # mmobj config change --ccrfile proxy-server.conf --section filter:hlm --property use --value egg:swifthlm#swifthlm
 
 5. Activate
 ===============================================
