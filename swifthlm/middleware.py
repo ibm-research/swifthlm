@@ -130,7 +130,7 @@ class HlmMiddleware(object):
             path = env['PATH_INFO']
             query = env.get('QUERY_STRING') or ''
             requestId = ''.join(random.choice(string.digits) for i in range(12)) # TBD: support requestId as input 
-            if query == 'STATUS':
+            if 'STATUS' in query:
                 try:
 		    out = subprocess.check_output([self.status_backend, path[4:], requestId]) #py 2.7+
                 except subprocess.CalledProcessError, e:
