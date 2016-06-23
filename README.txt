@@ -104,7 +104,17 @@ provided below in section "External Interface and Usage Examples".
   b) If Swift installed as part of Spectrum Scale 4.1.1 and later:
 
     # mmces service stop OBJ --all
+
+    Retrieve your current Swift middleware pipeline setting:
+    # mmobj config list --ccrfile proxy-server.conf --section pipeline:main --property pipeline
+
+    Example output for the previous command:
+    pipeline = healthcheck cache formpost tempurl swift3 s3token authtoken keystoneauth container-quotas account-quotas staticweb bulk slo dlo hlm proxy-server
+
+    Insert hlm before proxy-server and write back the configuration - for the above example:
     # mmobj config change --ccrfile proxy-server.conf --section pipeline:main --property pipeline --value "healthcheck cache formpost tempurl swift3 s3token authtoken keystoneauth container-quotas account-quotas staticweb bulk slo dlo hlm proxy-server"
+
+    Register the swifthlm middleware:
     # mmobj config change --ccrfile proxy-server.conf --section filter:hlm --property use --value egg:swifthlm#swifthlm
 
 5. Activate
@@ -199,22 +209,24 @@ to ensure wide SwiftHLM acceptance and backend compatibility.
 7. External Interface and Usage Examples 
 ===============================================
 
-The external Swift inteface (SwitHLM extension of it) syntax is still exemplary
+The external Swift interface (SwitHLM extension of it) syntax is still exemplary
 and not standardized.
 
 * Syntax for using SwiftHLM enabled Swift via a standard (unmodified) curl Swift client:
 
-# curl -v -H 'X-Storage-Token: AUTH_tk2c0714aa645d40268a753293c678062f' -X POST http://zagreb.zurich.ibm.com:8080/v1/AUTH_test/contT1?STATUS
+# curl -v -H 'X-Storage-Token: AUTH_tk2c0714aa645d40268a753293c678062f' -X GET http://zagreb.zurich.ibm.com:8080/v1/AUTH_test/contT1?STATUS
 # curl -v -H 'X-Storage-Token: AUTH_tk2c0714aa645d40268a753293c678062f' -X POST http://zagreb.zurich.ibm.com:8080/v1/AUTH_test/contT1/obj0?MIGRATE
-# curl -v -H 'X-Storage-Token: AUTH_tk2c0714aa645d40268a753293c678062f' -X GET http://zagreb.zurich.ibm.com:8080/v1/AUTH_test/contT1/obj0?RECALL
+# curl -v -H 'X-Storage-Token: AUTH_tk2c0714aa645d40268a753293c678062f' -X POST http://zagreb.zurich.ibm.com:8080/v1/AUTH_test/contT1/obj0?RECALL
 
 * Examples of outputs for the above commands:
 
-[root@zagreb objects]# curl -v -H 'X-Storage-Token: AUTH_tk2da86b9403ea42389d34863ccee7ffbf' -X POST http://127.0.0.1:8080/v1/AUTH_test/contT1?STATUS
+###### Get status of all objects within container contT1:
+
+[root@zagreb objects]# curl -v -H 'X-Storage-Token: AUTH_tk2da86b9403ea42389d34863ccee7ffbf' -X GET http://127.0.0.1:8080/v1/AUTH_test/contT1?STATUS
 * About to connect() to 127.0.0.1 port 8080 (#0)
 *   Trying 127.0.0.1... connected
 * Connected to 127.0.0.1 (127.0.0.1) port 8080 (#0)
-> POST /v1/AUTH_test/contT1?STATUS HTTP/1.1
+> GET /v1/AUTH_test/contT1?STATUS HTTP/1.1
 > User-Agent: curl/7.19.7 (x86_64-redhat-linux-gnu) libcurl/7.19.7 NSS/3.18 Basic ECC zlib/1.2.3 libidn/1.18 libssh2/1.4.2
 > Host: 127.0.0.1:8080
 > Accept: */*
@@ -234,7 +246,32 @@ Object                        Status      File                                  
 /AUTH_test/contT1/obj0        resident    /srv/node/gpfs/objects-1/793/aac/006e3939ccbd5d8801bcfaa318941aac/1452701309.62247.data   -
 * Connection #0 to host 127.0.0.1 left intact
 * Closing connection #0
-[root@zagreb objects]#
+
+###### Get status of single object obj0 within container contT1:
+
+[root@zagreb objects]# curl -v -H 'X-Storage-Token: AUTH_tk2da86b9403ea42389d34863ccee7ffbf' -X GET http://127.0.0.1:8080/v1/AUTH_test/contT1/obj0?STATUS
+* About to connect() to 127.0.0.1 port 8080 (#0)
+*   Trying 127.0.0.1... connected
+* Connected to 127.0.0.1 (127.0.0.1) port 8080 (#0)
+> GET /v1/AUTH_test/contT1/obj0?STATUS HTTP/1.1
+> User-Agent: curl/7.19.7 (x86_64-redhat-linux-gnu) libcurl/7.19.7 NSS/3.18 Basic ECC zlib/1.2.3 libidn/1.18 libssh2/1.4.2
+> Host: 127.0.0.1:8080
+> Accept: */*
+> X-Storage-Token: AUTH_tk2da86b9403ea42389d34863ccee7ffbf
+>
+< HTTP/1.1 200 OK
+< Content-Length: 306
+< Content-Type: text/plain
+< X-Trans-Id: tx1a280a87c49c4cbf80bec-00569676c8
+< Date: Wed, 13 Jan 2016 16:09:45 GMT
+<
+Object                        Status      File                                                                                      Tape
+/AUTH_test/contT1/obj0        resident    /srv/node/gpfs/objects-1/793/aac/006e3939ccbd5d8801bcfaa318941aac/1452701309.62247.data   -
+* Connection #0 to host 127.0.0.1 left intact
+* Closing connection #0
+
+###### Migrate obj0 to Tape:
+
 [root@zagreb objects]# curl -v -H 'X-Storage-Token: AUTH_tk2da86b9403ea42389d34863ccee7ffbf' -X POST http://127.0.0.1:8080/v1/AUTH_test/contT1/obj0?MIGRATE
 * About to connect() to 127.0.0.1 port 8080 (#0)
 *   Trying 127.0.0.1... connected
@@ -254,36 +291,14 @@ Object                        Status      File                                  
 Accepted migration request.
 * Connection #0 to host 127.0.0.1 left intact
 * Closing connection #0
-[root@zagreb objects]#
-[root@zagreb objects]#
-[root@zagreb objects]# curl -v -H 'X-Storage-Token: AUTH_tk2da86b9403ea42389d34863ccee7ffbf' -X POST http://127.0.0.1:8080/v1/AUTH_test/contT1/obj0?STATUS
+
+###### Get status of Object obj0 (now migrated to tape):
+
+[root@zagreb objects]# curl -v -H 'X-Storage-Token: AUTH_tk2da86b9403ea42389d34863ccee7ffbf' -X GET http://127.0.0.1:8080/v1/AUTH_test/contT1/obj0?STATUS
 * About to connect() to 127.0.0.1 port 8080 (#0)
 *   Trying 127.0.0.1... connected
 * Connected to 127.0.0.1 (127.0.0.1) port 8080 (#0)
-> POST /v1/AUTH_test/contT1/obj0?STATUS HTTP/1.1
-> User-Agent: curl/7.19.7 (x86_64-redhat-linux-gnu) libcurl/7.19.7 NSS/3.18 Basic ECC zlib/1.2.3 libidn/1.18 libssh2/1.4.2
-> Host: 127.0.0.1:8080
-> Accept: */*
-> X-Storage-Token: AUTH_tk2da86b9403ea42389d34863ccee7ffbf
->
-< HTTP/1.1 200 OK
-< Content-Length: 306
-< Content-Type: text/plain
-< X-Trans-Id: tx1a280a87c49c4cbf80bec-00569676c8
-< Date: Wed, 13 Jan 2016 16:09:45 GMT
-<
-Object                        Status      File                                                                                      Tape
-/AUTH_test/contT1/obj0        resident    /srv/node/gpfs/objects-1/793/aac/006e3939ccbd5d8801bcfaa318941aac/1452701309.62247.data   -
-* Connection #0 to host 127.0.0.1 left intact
-* Closing connection #0
-[root@zagreb objects]#
-[root@zagreb objects]#
-[root@zagreb objects]#
-[root@zagreb objects]# curl -v -H 'X-Storage-Token: AUTH_tk2da86b9403ea42389d34863ccee7ffbf' -X POST http://127.0.0.1:8080/v1/AUTH_test/contT1/obj0?STATUS
-* About to connect() to 127.0.0.1 port 8080 (#0)
-*   Trying 127.0.0.1... connected
-* Connected to 127.0.0.1 (127.0.0.1) port 8080 (#0)
-> POST /v1/AUTH_test/contT1/obj0?STATUS HTTP/1.1
+> GET /v1/AUTH_test/contT1/obj0?STATUS HTTP/1.1
 > User-Agent: curl/7.19.7 (x86_64-redhat-linux-gnu) libcurl/7.19.7 NSS/3.18 Basic ECC zlib/1.2.3 libidn/1.18 libssh2/1.4.2
 > Host: 127.0.0.1:8080
 > Accept: */*
@@ -299,12 +314,14 @@ Object                        Status      File                                  
 /AUTH_test/contT1/obj0        migrated    /srv/node/gpfs/objects-1/793/aac/006e3939ccbd5d8801bcfaa318941aac/1452701309.62247.data   B00030L6
 * Connection #0 to host 127.0.0.1 left intact
 * Closing connection #0
-[root@zagreb objects]#
-[root@zagreb objects]# curl -v -H 'X-Storage-Token: AUTH_tk2da86b9403ea42389d34863ccee7ffbf' -X POST http://127.0.0.1:8080/v1/AUTH_test/contT1?STATUS
+
+###### Get status of all objects within Container contT1:
+
+[root@zagreb objects]# curl -v -H 'X-Storage-Token: AUTH_tk2da86b9403ea42389d34863ccee7ffbf' -X GET http://127.0.0.1:8080/v1/AUTH_test/contT1?STATUS
 * About to connect() to 127.0.0.1 port 8080 (#0)
 *   Trying 127.0.0.1... connected
 * Connected to 127.0.0.1 (127.0.0.1) port 8080 (#0)
-> POST /v1/AUTH_test/contT1?STATUS HTTP/1.1
+> GET /v1/AUTH_test/contT1?STATUS HTTP/1.1
 > User-Agent: curl/7.19.7 (x86_64-redhat-linux-gnu) libcurl/7.19.7 NSS/3.18 Basic ECC zlib/1.2.3 libidn/1.18 libssh2/1.4.2
 > Host: 127.0.0.1:8080
 > Accept: */*
@@ -324,7 +341,9 @@ Object                        Status      File                                  
 /AUTH_test/contT1/obj0        migrated    /srv/node/gpfs/objects-1/793/aac/006e3939ccbd5d8801bcfaa318941aac/1452701309.62247.data   B00030L6
 * Connection #0 to host 127.0.0.1 left intact
 * Closing connection #0
-[root@zagreb objects]#
+
+###### Recall all objects of Container contT1 back to disk:
+
 [root@zagreb objects]# curl -v -H 'X-Storage-Token: AUTH_tk2da86b9403ea42389d34863ccee7ffbf' -X POST http://127.0.0.1:8080/v1/AUTH_test/contT1?RECALL
 * About to connect() to 127.0.0.1 port 8080 (#0)
 *   Trying 127.0.0.1... connected
@@ -344,13 +363,14 @@ Object                        Status      File                                  
 Accepted recall request.
 * Connection #0 to host 127.0.0.1 left intact
 * Closing connection #0
-[root@zagreb objects]#
-[root@zagreb objects]#
-[root@zagreb objects]# curl -v -H 'X-Storage-Token: AUTH_tk2da86b9403ea42389d34863ccee7ffbf' -X POST http://127.0.0.1:8080/v1/AUTH_test/contT1?STATUS
+
+###### Check status for all objects of Container contT1 (now on disk and tape, thus "premigrated"):
+
+[root@zagreb objects]# curl -v -H 'X-Storage-Token: AUTH_tk2da86b9403ea42389d34863ccee7ffbf' -X GET http://127.0.0.1:8080/v1/AUTH_test/contT1?STATUS
 * About to connect() to 127.0.0.1 port 8080 (#0)
 *   Trying 127.0.0.1... connected
 * Connected to 127.0.0.1 (127.0.0.1) port 8080 (#0)
-> POST /v1/AUTH_test/contT1?STATUS HTTP/1.1
+> GET /v1/AUTH_test/contT1?STATUS HTTP/1.1
 > User-Agent: curl/7.19.7 (x86_64-redhat-linux-gnu) libcurl/7.19.7 NSS/3.18 Basic ECC zlib/1.2.3 libidn/1.18 libssh2/1.4.2
 > Host: 127.0.0.1:8080
 > Accept: */*
