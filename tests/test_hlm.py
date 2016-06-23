@@ -70,7 +70,8 @@ class TestSwiftHLM(unittest.TestCase):
         resp = req.get_response(self.app)
 
         subprocess.check_output.assert_called_with(
-            ['/opt/ibm/swift-hlm-backend/status', 'a/c', '000000000000'])
+            ['/opt/ibm/swift-hlm-backend/status', 'a/c', '000000000000',
+             'STATUS'])
         self.assertEquals(resp.status_int, 200)
         self.assertEquals(resp.body, 'status output')
 
