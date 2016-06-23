@@ -75,6 +75,45 @@ class TestSwiftHLM(unittest.TestCase):
         self.assertEquals(resp.status_int, 200)
         self.assertEquals(resp.body, 'status output')
 
+    def test_invalid_get_status_POST(self):
+        subprocess.check_output = mock.Mock(return_value='status output')
+        random.choice = mock.Mock(return_value='0')
+        environ = {'REQUEST_METHOD': 'POST'}
+        req = Request.blank('/v1/a/c?STATUS', environ=environ)
+        resp = req.get_response(self.app)
+        self.assertEquals(resp.status_int, 200)
+        self.assertEquals(resp.body, '')
+
+    def test_invalid_migrate_GET(self):
+        subprocess.call = mock.Mock()
+        random.choice = mock.Mock(return_value='0')
+        req = Request.blank('/v1/a/c?MIGRATE')
+        resp = req.get_response(self.app)
+        self.assertEquals(resp.status_int, 200)
+        self.assertEquals(resp.body, '')
+
+    def test_invalid_get_status_exception(self):
+        subprocess.check_output = mock.Mock(
+            side_effect=subprocess.CalledProcessError(1, 'cmd', 'boom!'))
+        random.choice = mock.Mock(return_value='0')
+        req = Request.blank('/v1/a/c?STATUS')
+        resp = req.get_response(self.app)
+
+        subprocess.check_output.assert_called_with(
+            ['/opt/ibm/swift-hlm-backend/status', 'a/c', '000000000000',
+             'STATUS'])
+        self.assertEquals(resp.status_int, 200)
+        self.assertEquals(resp.body, 'boom!')
+
+    def test_filter_factory(self):
+        factory = swifthlm.filter_factory({'migrate_backend': '/a/b/c/migrate',
+                                           'recall_backend': '/d/e/f/recall',
+                                           'status_backend': '/g/h/i/status'})
+        thehlm = factory('myapp')
+        self.assertEqual(thehlm.migrate_backend, '/a/b/c/migrate')
+        self.assertEqual(thehlm.recall_backend, '/d/e/f/recall')
+        self.assertEqual(thehlm.status_backend, '/g/h/i/status')
+
 
 if __name__ == '__main__':
     unittest.main()
