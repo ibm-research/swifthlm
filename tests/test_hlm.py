@@ -31,24 +31,20 @@ class FakeApp(object):
 
     def __call__(self, env, start_response):
         start_response('200 OK', self.headers)
-
-        path = env.get('PATH_INFO')
-        if path == '/v1/AUTH_.auth/account1/.services':
-            return json.dumps({'storage': {
-                'cluster_name': 'http://localhost/v1/AUTH_123'}})
         return []
 
 
 class TestSwiftHLM(unittest.TestCase):
 
-    def test_migrate(self):
-        app = swifthlm.HlmMiddleware(FakeApp(), {})
+    def setUp(self):
+        self.app = swifthlm.HlmMiddleware(FakeApp(), {})
 
+    def test_migrate(self):
         subprocess.call = mock.Mock()
         random.choice = mock.Mock(return_value='0')
         environ = {'REQUEST_METHOD': 'POST'}
         req = Request.blank('/v1/a/c?MIGRATE', environ=environ)
-        resp = req.get_response(app)
+        resp = req.get_response(self.app)
 
         subprocess.call.assert_called_with(
             ['/opt/ibm/swift-hlm-backend/migrate', 'a/c', '000000000000'])
@@ -56,13 +52,11 @@ class TestSwiftHLM(unittest.TestCase):
         self.assertEquals(resp.body, 'Accepted migration request.\n')
 
     def test_recall(self):
-        app = swifthlm.HlmMiddleware(FakeApp(), {})
-
         subprocess.call = mock.Mock()
         random.choice = mock.Mock(return_value='0')
         environ = {'REQUEST_METHOD': 'POST'}
         req = Request.blank('/v1/a/c?RECALL', environ=environ)
-        resp = req.get_response(app)
+        resp = req.get_response(self.app)
 
         subprocess.call.assert_called_with(
             ['/opt/ibm/swift-hlm-backend/recall', 'a/c', '000000000000'])
@@ -70,12 +64,10 @@ class TestSwiftHLM(unittest.TestCase):
         self.assertEquals(resp.body, 'Accepted recall request.\n')
 
     def test_get_status(self):
-        app = swifthlm.HlmMiddleware(FakeApp(), {})
-
         subprocess.check_output = mock.Mock(return_value='status output')
         random.choice = mock.Mock(return_value='0')
         req = Request.blank('/v1/a/c?STATUS')
-        resp = req.get_response(app)
+        resp = req.get_response(self.app)
 
         subprocess.check_output.assert_called_with(
             ['/opt/ibm/swift-hlm-backend/status', 'a/c', '000000000000'])
