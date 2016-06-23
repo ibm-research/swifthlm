@@ -15,10 +15,80 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-### Authors:
-# Slavisa Sarafijanovic (sla@zurich.ibm.com)
-# Harald Seipp (seipp@de.ibm.com)
+"""
+SwiftHLM middleware is useful for running OpenStack Swift on top of high
+latency media (HLM) storage, such as tape or optical disk archive based
+backends, allowing to store cheaply and access efficiently large amounts of
+infrequently used object data.
 
+SwiftHLM extends Swift's interface and thus allows to explicitly control and
+query the state (on disk or on HLM) of Swift object data, including efficient
+prefetch of bulk of objects from HLM to disk when those objects need to be
+accessed.
+
+SwiftHLM provides the following basic HLM functions on the external Swift
+interface:
+- MIGRATE (container or an object from disk to HLM)
+- RECALL (i.e. prefetch a container or an object from HLM to disk)
+- STATUS (get status for an object or a container).
+
+For each of these functions, SwiftHLM invokes an external backend that is
+responsible for managing the HLM resources and moving the data from disk to HLM
+and vice versa.
+
+-------
+MIGRATE
+-------
+
+Trigger a migration from disk to HLM of a single object or all objects within a
+container.
+Request must be POST with the query parameter ``?MIGRATE``
+
+For example::
+
+    /v1/AUTH_Account/Container/Object?MIGRATE
+    /v1/AUTH_Account/Container?MIGRATE
+
+------
+RECALL
+------
+
+Trigger a recall from HLM to disk for a single object or all objects within a
+container.
+Request must be POST with the query parameter ``?RECALL``
+
+For example::
+
+    /v1/AUTH_Account/Container/Object?RECALL
+    /v1/AUTH_Account/Container?RECALL
+
+------
+STATUS
+------
+
+Return free-form status (on HLM or on disk) for a given object or all objects
+within a container with the response body.
+Request must be GET with the query parameter
+``?STATUS``
+
+For example::
+
+    /v1/AUTH_Account/Container/Object?STATUS
+    /v1/AUTH_Account/Container?STATUS
+
+When ``format=json`` is added to the query parameter, the response body will be
+formatted in json format.
+
+For example::
+
+    /v1/AUTH_Account/Container/Object?STATUS&format=json
+    /v1/AUTH_Account/Container?STATUS&format=json
+
+
+Authors:
+Slavisa Sarafijanovic (sla@zurich.ibm.com)
+Harald Seipp (seipp@de.ibm.com)
+"""
 
 import errno
 import subprocess
