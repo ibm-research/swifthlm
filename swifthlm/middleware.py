@@ -99,6 +99,7 @@ import sys
 
 from swift.common.swob import Request, Response
 from swift.common.http import HTTP_OK
+from swift.common.utils import register_swift_info
 
 # If POST is migration or recall request, or GET is status request, process by this middleware 
 class HlmMiddleware(object):
@@ -141,6 +142,7 @@ class HlmMiddleware(object):
 def filter_factory(global_conf, **local_conf):
     conf = global_conf.copy()
     conf.update(local_conf)
+    register_swift_info('hlm')
 
     def hlm_filter(app):
         return HlmMiddleware(app, conf)
