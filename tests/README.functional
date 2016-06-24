@@ -1,0 +1,190 @@
+# (C) Copyright 2016 IBM Corp.
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#    http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or
+# implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+### Authors:
+Slavisa Sarafijanovic (sla@zurich.ibm.com)
+Harald Seipp (seipp@de.ibm.com)
+
+
+To run SwiftHLM middleware functional tests, apply the two Swift source code
+modifications below.
+Modification 1) contains the tests itself. An existing object will be migrated,
+then status will be checked, then the object will get recalled and status again
+will be checked to ensure that all possible states are successfully reached.
+
+Modification 2) hooks into the functional test setup_package() and
+teardown_package() methods to install and de-install a test HLM backend. It
+also checks for SwiftHLM middleware presence through the Swift Info API and
+automatically skips the SwiftHLM tests if the middleware is not active.
+
+
+1) Add the following code to swift/test/functional/test_object.py:
+
+    def test_migrate_recall_status_object(self):
+        if tf.skip or tf.skip_hlm:
+            raise SkipTest
+
+        obj = '%s/%s' % (self.container, self.obj)
+
+        # Check object exists and set up backend be aware of it
+        # Tbd: setup backend be aware of it: manual->test code
+        # Tbd: consider use of EAs
+        def check_object_exists(url, token, parsed, conn):
+            conn.request('HEAD',
+                         '%s/%s' % (parsed.path, obj),
+                         '', {'X-Auth-Token': token})
+            return check_response(conn)
+        resp = retry(check_object_exists)
+        self.assertEqual(resp.status, 200)
+        #tbd: here setup backend be aware of object (currently manual prepared)
+        #... write 'resident' into /tmp/test-swifthlm/objdir/objfile
+
+        # migrate object
+        def migrate(url, token, parsed, conn):
+            conn.request('POST', '%s/%s?MIGRATE' % (parsed.path, obj), '',
+                         {'X-Auth-Token': token,
+                          'Content-Length': '0'})
+            return check_response(conn)
+        resp = retry(migrate)
+        resp.read()
+        self.assertEqual(resp.status, 200)
+
+       # get object status (should be migrated)
+        def status(url, token, parsed, conn):
+            conn.request('GET', '%s/%s?STATUS' % (parsed.path, obj), '',
+                         {'X-Auth-Token': token})
+            return check_response(conn)
+        resp = retry(status)
+        body = resp.read()
+        self.assertEqual(resp.status, 200)
+        self.assertEqual(body, 'migrated\n')
+
+        # recall object
+        def recall(url, token, parsed, conn):
+            conn.request('POST', '%s/%s?RECALL' % (parsed.path, obj), '',
+                         {'X-Auth-Token': token,
+                          'Content-Length': '0'})
+            return check_response(conn)
+        resp = retry(recall)
+        resp.read()
+        self.assertEqual(resp.status, 200)
+
+        # get object status (should be premigrated)
+        def status(url, token, parsed, conn):
+            conn.request('GET', '%s/%s?STATUS' % (parsed.path, obj), '',
+                         {'X-Auth-Token': token})
+            return check_response(conn)
+        resp = retry(status)
+        body = resp.read()
+        self.assertEqual(resp.status, 200)
+        self.assertEqual(body, 'premigrated\n')
+
+
+2) Apply the following patch against swift/test/functional/__init__.py:
+
+diff --git a/test/functional/__init__.py b/test/functional/__init__.py
+index 52be849..e7647cf 100644
+--- a/test/functional/__init__.py
++++ b/test/functional/__init__.py
+@@ -553,6 +553,62 @@ def get_cluster_info():
+     cluster_info['swift'] = eff_constraints
+ 
+ 
++def _setup_hlm_backend():
++    def _create_exe_file(filename, contents):
++        if not os.path.isfile(filename):
++            fp = open(filename, 'w+')
++            for lines in contents:
++                fp.write(lines + '\n')
++            fp.close()
++            st = os.stat(filename)
++            os.chmod(filename, st.st_mode | 0o111)
++
++    global hlm_backend_installed
++    hlm_backend_installed = False
++    global hlm_backend_dir
++    hlm_backend_dir = '/opt/ibm/swift-hlm-backend/'
++    if not os.path.exists(hlm_backend_dir):
++        os.makedirs(hlm_backend_dir)
++    else:
++        # Back out here, do not overwrite existing backend code
++        return
++    migrate_code = ("#!/bin/bash",
++                    "backend_meta_dir='/tmp/test-swifthlm'",
++                    "cont=`echo \"$1\" | awk -F '/' '{ print $2 }'`",
++                    "obj=`echo \"$1\" | awk -F '/' '{ print $3 }'`",
++                    "mkdir -p $backend_meta_dir/$cont",
++                    "echo 'migrated' > $backend_meta_dir/$cont/$obj",
++                    "exit 0")
++    _create_exe_file(hlm_backend_dir + 'migrate', migrate_code)
++    recall_code = ("#!/bin/bash",
++                   "backend_meta_dir='/tmp/test-swifthlm'",
++                   "cont=`echo \"$1\" | awk -F '/' '{ print $2 }'`",
++                   "obj=`echo \"$1\" | awk -F '/' '{ print $3 }'`",
++                   "mkdir -p $backend_meta_dir/$cont",
++                   "echo 'premigrated' > $backend_meta_dir/$cont/$obj",
++                   "exit 0")
++    _create_exe_file(hlm_backend_dir + 'recall', recall_code)
++    status_code = ("#!/bin/bash",
++                   "backend_meta_dir='/tmp/test-swifthlm'",
++                   "cont=`echo \"$1\" | awk -F '/' '{ print $2 }'`",
++                   "obj=`echo \"$1\" | awk -F '/' '{ print $3 }'`",
++                   "cat $backend_meta_dir/$cont/$obj",
++                   "exit 0")
++    _create_exe_file(hlm_backend_dir + 'status', status_code)
++    hlm_backend_installed = True
++
++
++def _teardown_hlm_backend():
++    if hlm_backend_installed:
++        for root, dirs, files in os.walk(hlm_backend_dir, topdown=False):
++            for name in files:
++                os.remove(os.path.join(root, name))
++            for name in dirs:
++                os.rmdir(os.path.join(root, name))
++        # For now, let the higher-level directory remain
++        os.rmdir(hlm_backend_dir)
++
++
+ def setup_package():
+ 
+     global policy_specified
+@@ -771,6 +827,15 @@ def setup_package():
+ 
+     get_cluster_info()
+ 
++    global skip_hlm
++    skip_hlm = not all([not skip, 'hlm' in cluster_info])
++    if not skip and skip_hlm:
++        print(
++            'SKIPPING HLM FUNCTIONAL TESTS DUE TO NO CONFIG FOR THEM',
++            file=sys.stderr)
++    if not skip and not skip_hlm:
++        _setup_hlm_backend()
++
+ 
+ def teardown_package():
+     global orig_collate
+@@ -806,6 +871,9 @@ def teardown_package():
+         constraints.reload_constraints()
+         reset_globals()
+ 
++    if not skip_hlm:
++        _teardown_hlm_backend()
++
+ 
+ class AuthError(Exception):
+     pass
+
