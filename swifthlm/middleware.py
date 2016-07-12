@@ -237,9 +237,9 @@ class HlmMiddleware(object):
                     status = FAILED_SUBMITTING_REQUEST
                     out = response.content
                     return status, out
-            status = SUBMITTED_REQUESTS
-            out = ''
-            return status, out
+        status = SUBMITTED_REQUESTS
+        out = ''
+        return status, out
 
     def get_object_replicas_status(self, req, account, container, obj):
         query = req.query_string or 'STATUS'
