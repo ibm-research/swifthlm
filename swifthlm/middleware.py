@@ -112,6 +112,7 @@ from socket import gethostname, gethostbyname
 import ConfigParser
 from collections import OrderedDict
 from ast import literal_eval
+import netifaces
 
 # MIGRATION/RECALL return codes
 SUBMITTED_FORWARDED_REQUEST = 0
@@ -129,6 +130,14 @@ class HlmMiddleware(object):
         self.app = app
         # This host ip address
         self.ip = gethostbyname(gethostname())
+
+        self.ips = []
+        for interface in netifaces.interfaces():
+            if_addresses = netifaces.ifaddresses(interface)
+            if netifaces.AF_INET in if_addresses:
+                for link in if_addresses[netifaces.AF_INET]:
+                    self.ips.append(link['addr'])
+
         # Read settings from proxy-server.conf
         self.migrate_backend = conf.get('migrate_backend',
                                         '/opt/ibm/swift-hlm-backend/migrate')
@@ -160,7 +169,7 @@ class HlmMiddleware(object):
     def get_authentication_token(self, req, ip_addr):
         # If Keystone authentication (need test)
         cur_token = req.headers['X-Storage-Token']
-        if cur_token[0:3] == 'KEY':
+        if cur_token[0:3] == 'KEY' or cur_token[-2:] == '==':
             return cur_token
         # Tempauth
         remote_user = req.remote_user
@@ -237,8 +246,8 @@ class HlmMiddleware(object):
         ips = self.get_obj_storage_nodes(account, container, obj)
         replicas_status = []
         for ip_addr in ips:
-            if ip_addr == self.ip:
-            # Replica on this node, pass hlm request to backend
+            if ip_addr in self.ips:
+                # Replica on this node, pass hlm request to backend
                 # TBD: support requestId as input
                 requestId = ''.join(random.choice(string.digits)
                             for i in range(12))
@@ -252,6 +261,7 @@ class HlmMiddleware(object):
                                        ('replica_node', ip_addr),
                                        ('status', 'Unknown'),
                                        ('error', e.output)])
+                self.logger.debug('Subprocess return: %s', str(out))
                 if 'FORWARDED' in query:
                     # Request was forwarded, return success response
                     rc = REMOTE_STATUS
