@@ -401,10 +401,8 @@ class HlmMiddleware(object):
         # migrated, and redirect get request to one of non-migrated replicas
         if req.method == "GET" and obj and 'STATUS' not in query:
             # check status and either let GET proceed or return error code
-            rc, out, replicas_status = self.get_object_replicas_status(req,
-                                                                       account,
-                                                                       container,
-                                                                       obj)
+            rc, out, replicas_status = self.get_object_replicas_status(
+                req, account, container, obj)
             if rc == REMOTE_STATUS:
                 #send the replica status to requester node
                 return Response(status=HTTP_OK,
@@ -436,12 +434,8 @@ class HlmMiddleware(object):
                     hlm_req = 'RECALL'
                     hlm_backend = self.recall_backend
                 # submit hlm request for object replicas
-                status, out = self.submit_object_replicas_migration_recall(req,
-                                                                           account,
-                                                                           container,
-                                                                           obj,
-                                                                           hlm_req,
-                                                                           hlm_backend)
+                status, out = self.submit_object_replicas_migration_recall(
+                    req, account, container, obj, hlm_req, hlm_backend)
                 self.logger.debug('submit_object_replicas_migration_recall()')
                 if status == SUBMITTED_FORWARDED_REQUEST:
                     self.logger.debug('SUBMITTED_FORWARDED_REQUEST')
@@ -472,10 +466,8 @@ class HlmMiddleware(object):
         elif req.method == "GET" and obj:
             if 'STATUS' in query:
                 # Get status of each replica
-                rc, out, replicas_status = self.get_object_replicas_status(req,
-                                                                           account,
-                                                                           container,
-                                                                           obj)
+                rc, out, replicas_status = self.get_object_replicas_status(
+                    req, account, container, obj)
                 if rc == REMOTE_STATUS:
                     # send the replica status to requester node
                     return Response(status=HTTP_OK,
@@ -484,8 +476,8 @@ class HlmMiddleware(object):
                                                                start_response)
                 # Prepare/format object status info to report
                 # (json is default format)
-                out = self.format_object_status_info_for_reporting(req,
-                                                                   replicas_status)
+                out = self.format_object_status_info_for_reporting(
+                    req, replicas_status)
                 # Report object status
                 return Response(status=HTTP_OK,
                                 body=out,
@@ -528,9 +520,10 @@ class HlmMiddleware(object):
                     if status == SUBMITTED_FORWARDED_REQUEST:
                         self.logger.debug('SUBMITTED_FORWARDED_REQUEST')
                         return Response(status=HTTP_OK,
-                                        body='Accepted remote replica HLM request',
-                                        content_type="text/plain")(env,
-                                                                   start_response)
+                                        body='Accepted remote replica'
+                                        'HLM request',
+                                        content_type="text/plain")(
+                            env, start_response)
                     elif status == FAILED_SUBMITTING_REQUEST:
                         self.logger.debug('FAILED_SUBMITTING_REQUEST')
                         failure += 1
@@ -544,12 +537,14 @@ class HlmMiddleware(object):
                                                                start_response)
                 elif success == 0:
                     return Response(status=HTTP_INTERNAL_SERVER_ERROR,
-                                    body='Failed to submit %s requests.\n' % hlm_req,
+                                    body='Failed to submit %s requests.\n' %
+                                    hlm_req,
                                     content_type="text/plain")(env,
                                                                start_response)
                 else:
                     return Response(status=HTTP_OK,
-                                    body="Submitting %s requests is only partially"
+                                    body="Submitting %s requests"
+                                    " is only partially"
                                     " successful.\n" % hlm_req,
                                     content_type="text/plain")(env,
                                                                start_response)
