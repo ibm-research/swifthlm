@@ -96,7 +96,7 @@ import string
 
 from swift.common.swob import Request, Response
 from swift.common.http import HTTP_OK, HTTP_INTERNAL_SERVER_ERROR, \
-        HTTP_ACCEPTED, HTTP_PRECONDITION_FAILED
+    HTTP_ACCEPTED, HTTP_PRECONDITION_FAILED
 from swift.common.utils import register_swift_info
 
 #
@@ -121,6 +121,7 @@ SUBMITTED_REQUESTS = 2
 REMOTE_STATUS = 0
 STATUS = 1
 
+
 class HlmMiddleware(object):
 
     def __init__(self, app, conf):
@@ -138,7 +139,7 @@ class HlmMiddleware(object):
         self.swift_dir = conf.get('swift_dir', '/etc/swift')
         # Logging
         self.logger = get_logger(conf, log_route='swifthlm')
-    
+
     # Get ring info needed for determining storage nodes
     def get_object_ring(self, storage_policy_index):
         return POLICIES.get_object_ring(storage_policy_index, self.swift_dir)
@@ -154,29 +155,29 @@ class HlmMiddleware(object):
         ips = []
         for node in nodes:
             ips.append(node['ip'])
-        return ips 
+        return ips
 
     def get_authentication_token(self, req, ip_addr):
-        # If Kyestone authentication (need test) 
+        # If Keystone authentication (need test)
         cur_token = req.headers['X-Storage-Token']
         if cur_token[0:3] == 'KEY':
             return cur_token
-        # Tempauth 
+        # Tempauth
         remote_user = req.remote_user
         account_user_aux = remote_user.split(',')[1]
-        account_user = account_user_aux.replace(':','_')
+        account_user = account_user_aux.replace(':', '_')
         cfg = ConfigParser.RawConfigParser()
         configFile = r'/etc/swift/proxy-server.conf'
         cfg.read(configFile)
-        remote_key = cfg.get('filter:tempauth', 'user_' 
-                + account_user).split(' ')[0]
+        remote_key = cfg.get('filter:tempauth', 'user_'
+                             + account_user).split(' ')[0]
         # TODO: consider pros/cons of using admin account
         #account_user_aux = 'admin:admin'
-        #remote_key = cfg.get('filter:tempauth', 
+        #remote_key = cfg.get('filter:tempauth',
         #                     'user_admin_admin').split(' ')[0]
         auth_url = 'http://%(ip)s:8080/auth/v1.0/'
-        auth_req =  auth_url % {'ip':ip_addr,
-                                'url':req.path}
+        auth_req = auth_url % {'ip': ip_addr,
+                               'url': req.path}
         headers = {'X-Auth-User': account_user_aux,
                    'X-Auth-Key': remote_key}
         response = requests.get(auth_req, headers=headers)
@@ -185,51 +186,51 @@ class HlmMiddleware(object):
 
     def submit_object_replicas_migration_recall(self, req, account, container,
                                                 obj, hlm_req, hlm_backend):
-                self.logger.debug('HLM %s request\n', hlm_req)
-                query = req.query_string
-                ips = self.get_obj_storage_nodes(account, container, obj)
-                for ip_addr in ips:
-                    if ip_addr == self.ip:
-                    # Replica on this node, pass hlm request to backend
-                        self.logger.debug('ip_addr = %s = self.ip', ip_addr)
-                        requestId = ''.join(random.choice(string.digits)
+        self.logger.debug('HLM %s request\n', hlm_req)
+        query = req.query_string
+        ips = self.get_obj_storage_nodes(account, container, obj)
+        for ip_addr in ips:
+            if ip_addr in self.ips:
+                # Replica on this node, pass hlm request to backend
+                self.logger.debug('ip_addr = %s = self.ip', ip_addr)
+                requestId = ''.join(random.choice(string.digits)
                                     for i in range(12))
-                        try:
-                            subprocess.check_call([hlm_backend,
-                                                   req.path_info[4:],
-                                                   requestId])
-                        except subprocess.CalledProcessError, e:
-                            status = FAILED_SUBMITTING_REQUEST
-                            out = e.output
-                            return status, out
-                        if 'FORWARDED' in query:
-                            self.logger.debug('ip_addr = %s = self.ip (FWD)',
-                                    ip_addr)
-                            # Submitted forwarded request, return success
-                            status = SUBMITTED_FORWARDED_REQUEST
-                            out = ''
-                            return status, out
-                    elif 'FORWARDED' not in query:
-                    # Replica on another node and hlm request not already
-                    # forwarded, forward hlm request
-                        self.logger.debug('ip_addr = %s != self.ip (NFWD)',
-                                ip_addr)
-                        # Get auth token
-                        token = self.get_authentication_token(req, ip_addr)
-                        # Forward hlm request
-                        hlm_url = \
-                                'http://%(ip)s:8080%(url)s?&FORWARDED&' + query
-                        hlm_fwd_req = hlm_url % {'ip':ip_addr,
-                                                 'url':req.path}
-                        headers = {'X-Storage-Token': token}
-                        response = requests.post(hlm_fwd_req, headers=headers)
-                        if response.status_code not in [HTTP_OK,HTTP_ACCEPTED]:
-                            status = FAILED_SUBMITTING_REQUEST
-                            out = response.content
-                            return status, out
-                status = SUBMITTED_REQUESTS
-                out = ''
-                return status, out
+                try:
+                    subprocess.check_call([hlm_backend,
+                                           req.path_info[4:],
+                                           requestId])
+                except subprocess.CalledProcessError, e:
+                    status = FAILED_SUBMITTING_REQUEST
+                    out = e.output
+                    return status, out
+                if 'FORWARDED' in query:
+                    self.logger.debug('ip_addr = %s = self.ip (FWD)',
+                                      ip_addr)
+                    # Submitted forwarded request, return success
+                    status = SUBMITTED_FORWARDED_REQUEST
+                    out = ''
+                    return status, out
+            elif 'FORWARDED' not in query:
+                # Replica on another node and hlm request not already
+                # forwarded, forward hlm request
+                self.logger.debug('ip_addr = %s != self.ip (NFWD)',
+                                  ip_addr)
+                # Get auth token
+                token = self.get_authentication_token(req, ip_addr)
+                # Forward hlm request
+                hlm_url = 'http://%(ip)s:8080%(url)s?&FORWARDED&'\
+                          + query
+                hlm_fwd_req = hlm_url % {'ip': ip_addr,
+                                         'url': req.path}
+                headers = {'X-Storage-Token': token}
+                response = requests.post(hlm_fwd_req, headers=headers)
+                if response.status_code not in [HTTP_OK, HTTP_ACCEPTED]:
+                    status = FAILED_SUBMITTING_REQUEST
+                    out = response.content
+                    return status, out
+            status = SUBMITTED_REQUESTS
+            out = ''
+            return status, out
 
     def get_object_replicas_status(self, req, account, container, obj):
         query = req.query_string or 'STATUS'
@@ -256,23 +257,23 @@ class HlmMiddleware(object):
                     rc = REMOTE_STATUS
                     return rc, out, replicas_status
                 else:
-                    replicas_status.append(out)	
+                    replicas_status.append(out)
             elif 'FORWARDED' not in query:
             # Replica on another node, request status remotely
                 # Get auth token
                 token = self.get_authentication_token(req, ip_addr)
                 # Forward hlm request
-                hlm_url = \
-                        'http://%(ip)s:8080%(url)s?FORWARDED&' + query
-                hlm_fwd_req = hlm_url % {'ip':ip_addr,
-                                         'url':req.path}
+                hlm_url = 'http://%(ip)s:8080%(url)s?FORWARDED&'\
+                          + query
+                hlm_fwd_req = hlm_url % {'ip': ip_addr,
+                                         'url': req.path}
                 headers = {'X-Storage-Token': token}
                 response = requests.get(hlm_fwd_req, headers=headers)
-                if response.status_code not in [HTTP_OK,HTTP_ACCEPTED]:
+                if response.status_code not in [HTTP_OK, HTTP_ACCEPTED]:
                     out = OrderedDict([('object', req.path),
                                        ('status', 'Unknown')])
                     replicas_status.append(out)
-                else: 
+                else:
                     replicas_status.append(response.content)
         rc = STATUS
         out = ''
@@ -286,16 +287,16 @@ class HlmMiddleware(object):
         # replica. Custom headers line is reported only once if provided by
         # backend
         if ('format=' in query and 'format=json' not in query):
-            # get per replica status info 
+            # get per replica status info
             for replica_status in replicas_status:
                 #remove duplicate custom backend header
-                if 'format=' in query and 'format=json' not in query: 
+                if 'format=' in query and 'format=json' not in query:
                     header = replica_status.split('\n')[0]
                     if header in out:
                         replica_status = replica_status[len(header)+1:]
                 # add replica info
                 out += replica_status
-        else: # Default format
+        else:  # Default format
             # * By default, status is reported in JSON format, one line per
             # object. Status info reported by default: object url, status of
             # each replica.
@@ -322,7 +323,7 @@ class HlmMiddleware(object):
             nodes = ''
             hlm_info = ''
             files = ''
-            # Prepare status info 
+            # Prepare status info
             for replica_status in replicas_status:
                 if status != '':
                     status += '|'
@@ -332,34 +333,34 @@ class HlmMiddleware(object):
                 elif literal_eval(replica_status)['status'] != status:
                     summarized_status = 'undefined'
             if 'summarized' in query:
-                out_dict = OrderedDict([('object', req.path), 
-                                        ('status', summarized_status)])        
+                out_dict = OrderedDict([('object', req.path),
+                                        ('status', summarized_status)])
             else:
-                out_dict = OrderedDict([('object', req.path), 
-                                        ('status', status)])        
+                out_dict = OrderedDict([('object', req.path),
+                                        ('status', status)])
             # Append optional info
-            if 'nodes' in query or 'all' in query: 
+            if 'nodes' in query or 'all' in query:
                 for replica_status in replicas_status:
                     if nodes != '':
                         nodes += '|'
                     nodes += literal_eval(replica_status)['node']
                 out_dict.update({'nodes': nodes})
-            if 'hlm' in query or 'all' in query: 
+            if 'hlm' in query or 'all' in query:
                 for replica_status in replicas_status:
                     if hlm_info != '':
                         hlm_info += '|'
                     hlm_info += literal_eval(replica_status)['hlm']
                 out_dict.update({'hlm': hlm_info})
-            if 'file' in query or 'all' in query: 
+            if 'file' in query or 'all' in query:
                 for replica_status in replicas_status:
                     if files != '':
                         files += '|'
                     files += literal_eval(replica_status)['file']
                 out_dict.update({'file': files})
 
-            # Prepare as a line string    
+            # Prepare as a line string
             out = json.dumps(out_dict) + '\n'
-        return out 
+        return out
 
     def __call__(self, env, start_response):
         req = Request(env)
@@ -378,7 +379,7 @@ class HlmMiddleware(object):
         query = req.query_string or ''
         if not (method == 'POST'
                 and ('MIGRATE' in query
-                    or 'RECALL' in query)
+                     or 'RECALL' in query)
                 or method == 'GET'):
             return self.app(env, start_response)
 
@@ -389,15 +390,17 @@ class HlmMiddleware(object):
         # TODO: provide option to return error code only if all replicas are
         # migrated, and redirect get request to one of non-migrated replicas
         if req.method == "GET" and obj and 'STATUS' not in query:
-        	# check status and either let GET proceed or return error code
+            # check status and either let GET proceed or return error code
             rc, out, replicas_status = self.get_object_replicas_status(req,
-                    account, container, obj)
-            if rc == REMOTE_STATUS: 
+                                                                       account,
+                                                                       container,
+                                                                       obj)
+            if rc == REMOTE_STATUS:
                 #send the replica status to requester node
                 return Response(status=HTTP_OK,
                                 body=out,
                                 content_type="text/plain")(env,
-                                start_response)
+                                                           start_response)
             self.logger.debug('replicas_status %s', str(replicas_status))
             ret_error = False
             for replica_status in replicas_status:
@@ -406,12 +409,13 @@ class HlmMiddleware(object):
                     ret_error = True
             if ret_error:
                 return Response(status=HTTP_PRECONDITION_FAILED,
-                    body="Object %s needs to be RECALL-ed before it can be " 
-                    "accessed.\n"%literal_eval(replicas_status[0])['object'],
-                    content_type="text/plain")(env,start_response)
+                                body="Object %s needs to be RECALL-ed before "
+                                "it can be accessed.\n" %
+                                literal_eval(replicas_status[0])['object'],
+                                content_type="text/plain")(env, start_response)
 
             return self.app(env, start_response)
-            
+
         # Process POST request to migrate/recall object
         elif method == 'POST' and obj:
             if 'MIGRATE' in query or 'RECALL' in query:
@@ -423,69 +427,76 @@ class HlmMiddleware(object):
                     hlm_backend = self.recall_backend
                 # submit hlm request for object replicas
                 status, out = self.submit_object_replicas_migration_recall(req,
-                        account, container, obj, hlm_req, hlm_backend)
+                                                                           account,
+                                                                           container,
+                                                                           obj,
+                                                                           hlm_req,
+                                                                           hlm_backend)
                 self.logger.debug('submit_object_replicas_migration_recall()')
                 if status == SUBMITTED_FORWARDED_REQUEST:
                     self.logger.debug('SUBMITTED_FORWARDED_REQUEST')
                     return Response(status=HTTP_OK,
                                     body='Accepted remote replica HLM request',
                                     content_type="text/plain")(env,
-                                    start_response)
+                                                               start_response)
                 elif status == FAILED_SUBMITTING_REQUEST:
                     self.logger.debug('FAILED_SUBMITTING_REQUEST')
                     return Response(status=HTTP_INTERNAL_SERVER_ERROR,
                                     body=out,
                                     content_type="text/plain")(env,
-                                    start_response)
+                                                               start_response)
                 elif status == SUBMITTED_REQUESTS:
                     self.logger.debug('SUBMITTED_REQUESTS')
                     return Response(status=HTTP_OK,
-                                    body='Accepted %s request.\n'%hlm_req,
+                                    body='Accepted %s request.\n' % hlm_req,
                                     content_type="text/plain")(env,
-                                    start_response)
-                else: # invalid case
+                                                               start_response)
+                else:  # invalid case
                     self.logger.debug('INVALID_CASE')
                     return Response(status=HTTP_INTERNAL_SERVER_ERROR,
                                     body=out,
                                     content_type="text/plain")(env,
-                                    start_response)
+                                                               start_response)
 
         # Process GET object status request
         elif req.method == "GET" and obj:
             if 'STATUS' in query:
                 # Get status of each replica
                 rc, out, replicas_status = self.get_object_replicas_status(req,
-                        account, container, obj)
-                if rc == REMOTE_STATUS: 
-                    #send the replica status to requester node
+                                                                           account,
+                                                                           container,
+                                                                           obj)
+                if rc == REMOTE_STATUS:
+                    # send the replica status to requester node
                     return Response(status=HTTP_OK,
-                            body=out,
-                            content_type="text/plain")(env,
-                            start_response)
-                # Prepare/format object status info to report (json is default format)
+                                    body=out,
+                                    content_type="text/plain")(env,
+                                                               start_response)
+                # Prepare/format object status info to report
+                # (json is default format)
                 out = self.format_object_status_info_for_reporting(req,
-                        replicas_status)
+                                                                   replicas_status)
                 # Report object status
                 return Response(status=HTTP_OK,
                                 body=out,
                                 content_type="text/plain")(env, start_response)
 
         # Process container request
-        if (container and not obj and 
-           ((method == 'POST' and ('MIGRATE' in query or 'RECALL' in query)) 
+        if (container and not obj and
+           ((method == 'POST' and ('MIGRATE' in query or 'RECALL' in query))
                 or method == 'GET' and 'STATUS' in query)):
             self.logger.debug('Process container request')
             # Get list of objects
             list_url = 'http://%(ip)s:8080%(url)s'
-            list_req =  list_url % {'ip':self.ip,
-                                    'url':req.path}
+            list_req = list_url % {'ip': self.ip,
+                                   'url': req.path}
             self.logger.debug('list_req: %s', list_req)
             self.logger.debug('req.headers: %s', str(req.headers))
             token = req.headers['X-Storage-Token']
             self.logger.debug('token: %s', token)
             headers = {'X-Storage-Token': token}
             response = requests.get(list_req, headers=headers)
-            self.logger.debug('response.headers: %s',str(response.headers))
+            self.logger.debug('response.headers: %s', str(response.headers))
             self.logger.debug('list: %s', str(response.content))
             objects = response.content.strip().split('\n')
             # Submit migration or recall
@@ -502,14 +513,14 @@ class HlmMiddleware(object):
                 for obj in objects:
                     self.logger.debug('obj: %s', obj)
                     status, out = self.submit_object_replicas_migration_recall(
-                            req, account, container, obj, hlm_req, hlm_backend)
+                        req, account, container, obj, hlm_req, hlm_backend)
                     self.logger.debug('submit_object_replicas_migr.._recall()')
                     if status == SUBMITTED_FORWARDED_REQUEST:
                         self.logger.debug('SUBMITTED_FORWARDED_REQUEST')
                         return Response(status=HTTP_OK,
-                                    body='Accepted remote replica HLM request',
-                                    content_type="text/plain")(env,
-                                    start_response)
+                                        body='Accepted remote replica HLM request',
+                                        content_type="text/plain")(env,
+                                                                   start_response)
                     elif status == FAILED_SUBMITTING_REQUEST:
                         self.logger.debug('FAILED_SUBMITTING_REQUEST')
                         failure += 1
@@ -518,22 +529,23 @@ class HlmMiddleware(object):
                         success += 1
                 if failure == 0:
                     return Response(status=HTTP_OK,
-                                body='Submitted %s requests.\n'%hlm_req,
-                                content_type="text/plain")(env,
-                                start_response)
+                                    body='Submitted %s requests.\n' % hlm_req,
+                                    content_type="text/plain")(env,
+                                                               start_response)
                 elif success == 0:
                     return Response(status=HTTP_INTERNAL_SERVER_ERROR,
-                                body='Failed to submit %s requests.\n'%hlm_req, 
-                                content_type="text/plain")(env,
-                                start_response)
+                                    body='Failed to submit %s requests.\n' % hlm_req,
+                                    content_type="text/plain")(env,
+                                                               start_response)
                 else:
                     return Response(status=HTTP_OK,
-                                body="Submitting %s requests is only partially"
-                                     " successful.\n"%hlm_req,
-                                content_type="text/plain")(env,
-                                start_response)
+                                    body="Submitting %s requests is only partially"
+                                    " successful.\n" % hlm_req,
+                                    content_type="text/plain")(env,
+                                                               start_response)
 
         return self.app(env, start_response)
+
 
 def filter_factory(global_conf, **local_conf):
     conf = global_conf.copy()
