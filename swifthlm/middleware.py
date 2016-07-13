@@ -337,10 +337,13 @@ class HlmMiddleware(object):
             for replica_status in replicas_status:
                 if status != '':
                     status += '|'
-                status += literal_eval(replica_status)['status']
-                if summarized_status == '':
-                    summarized_status = literal_eval(replica_status)['status']
-                elif literal_eval(replica_status)['status'] != status:
+                try:
+                    status += literal_eval(replica_status)['status']
+                    if summarized_status == '':
+                        summarized_status = literal_eval(replica_status)['status']
+                    elif literal_eval(replica_status)['status'] != status:
+                        summarized_status = 'undefined'
+                except ValueError:
                     summarized_status = 'undefined'
             if 'summarized' in query:
                 out_dict = OrderedDict([('object', req.path),
