@@ -69,7 +69,7 @@ automatically skips the SwiftHLM tests if the middleware is not active.
         resp = retry(status)
         body = resp.read()
         self.assertEqual(resp.status, 200)
-        self.assertIn('"status": "migrated"', body)
+        self.assertIn('"status": "migrated', body)
 
         # recall object
         def recall(url, token, parsed, conn):
@@ -89,7 +89,7 @@ automatically skips the SwiftHLM tests if the middleware is not active.
         resp = retry(status)
         body = resp.read()
         self.assertEqual(resp.status, 200)
-        self.assertIn('"status": "premigrated"', body)
+        self.assertIn('"status": "premigrated', body)
 
 
 2) Apply the following patch against swift/test/functional/__init__.py:

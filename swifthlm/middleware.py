@@ -340,7 +340,8 @@ class HlmMiddleware(object):
                 try:
                     status += literal_eval(replica_status)['status']
                     if summarized_status == '':
-                        summarized_status = literal_eval(replica_status)['status']
+                        summarized_status = literal_eval(
+                            replica_status)['status']
                     elif literal_eval(replica_status)['status'] != status:
                         summarized_status = 'undefined'
                 except ValueError:

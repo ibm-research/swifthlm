@@ -66,7 +66,8 @@ class TestSwiftHLM(unittest.TestCase):
         self.assertEquals(resp.body, 'Submitted RECALL requests.\n')
 
     def test_get_status(self):
-        subprocess.check_output = mock.Mock(return_value='{"object": "/v1/a/c/o", "status": "resident"}')
+        subprocess.check_output = mock.Mock(
+            return_value='{"object": "/v1/a/c/o", "status": "resident"}')
         random.choice = mock.Mock(return_value='0')
         req = Request.blank('/v1/a/c/o?STATUS')
         resp = req.get_response(self.app)
@@ -75,7 +76,7 @@ class TestSwiftHLM(unittest.TestCase):
             ['/opt/ibm/swift-hlm-backend/status', 'a/c/o', '000000000000',
              'STATUS'])
         self.assertEquals(resp.status_int, 200)
-        self.assertEquals(resp.body, '{"object": "/v1/a/c/o", "status": "resident"}\n')
+        self.assertIn('{"object": "/v1/a/c/o", "status": "resident', resp.body)
 
     def test_invalid_get_status_POST(self):
         subprocess.check_output = mock.Mock(return_value='status output')
