@@ -257,7 +257,7 @@ class HlmMiddleware(object):
                                                    requestId,
                                                    query])
                 except subprocess.CalledProcessError, e:
-                    out = OrderedDict([('object', req.path),
+                    out = OrderedDict([('object', req.path[3:]),
                                        ('replica_node', ip_addr),
                                        ('status', 'Unknown'),
                                        ('error', e.output)])
@@ -347,10 +347,10 @@ class HlmMiddleware(object):
                 except ValueError:
                     summarized_status = 'undefined'
             if 'summarized' in query:
-                out_dict = OrderedDict([('object', req.path),
+                out_dict = OrderedDict([('object', req.path[3:]),
                                         ('status', summarized_status)])
             else:
-                out_dict = OrderedDict([('object', req.path),
+                out_dict = OrderedDict([('object', req.path[3:]),
                                         ('status', status)])
             # Append optional info
             if 'nodes' in query or 'all' in query:
@@ -373,7 +373,7 @@ class HlmMiddleware(object):
                 out_dict.update({'file': files})
 
             # Prepare as a line string
-            out = json.dumps(out_dict) + '\n'
+            out = json.dumps(out_dict)
         return out
 
     def __call__(self, env, start_response):
@@ -387,7 +387,7 @@ class HlmMiddleware(object):
             return self.app(env, start_response)
         self.logger.debug(':%s:%s:%s:%s:', version, account, container, obj)
 
-        # If request is not HLM request and not object GET, it is not processed
+        # If request is not HLM request or not a GET, it is not processed
         # by this middleware
         method = req.method
         query = req.query_string or ''
@@ -481,7 +481,7 @@ class HlmMiddleware(object):
                 # Prepare/format object status info to report
                 # (json is default format)
                 out = self.format_object_status_info_for_reporting(
-                    req, replicas_status)
+                    req, replicas_status) + '\n'
                 # Report object status
                 return Response(status=HTTP_OK,
                                 body=out,
@@ -552,6 +552,31 @@ class HlmMiddleware(object):
                                     " successful.\n" % hlm_req,
                                     content_type="text/plain")(env,
                                                                start_response)
+            elif method == 'GET':
+                # submit hlm requests
+                accumulated_out = "["
+                for obj in objects:
+                    self.logger.debug('obj: %s', obj)
+
+                    # Get status of each replica
+                    # rewrite req.path to point to object instead of container
+                    req_orig_path = req.environ['PATH_INFO']
+                    req.environ['PATH_INFO'] += "/" + obj
+                    rc, out, replicas_status = self.get_object_replicas_status(
+                        req, account, container, obj)
+
+                    # Prepare/format object status info to report
+                    # (json is default format)
+                    accumulated_out += self.format_object_status_info_for_reporting(
+                        req, replicas_status) + ','
+
+                    req.environ['PATH_INFO'] = req_orig_path
+
+                # Report accumulated object status
+                accumulated_out = accumulated_out[:-1] + ']'
+                return Response(status=HTTP_OK,
+                                body=accumulated_out,
+                                content_type="text/plain")(env, start_response)
 
         return self.app(env, start_response)
 

@@ -15,6 +15,7 @@ import json
 import random
 import subprocess
 import unittest
+import requests
 
 import mock
 from swift.common.swob import Request
@@ -65,9 +66,9 @@ class TestSwiftHLM(unittest.TestCase):
         self.assertEquals(resp.status_int, 200)
         self.assertEquals(resp.body, 'Submitted RECALL requests.\n')
 
-    def test_get_status(self):
+    def test_get_objectstatus(self):
         subprocess.check_output = mock.Mock(
-            return_value='{"object": "/v1/a/c/o", "status": "resident"}')
+            return_value='{"object": "/a/c/o", "status": "resident"}')
         random.choice = mock.Mock(return_value='0')
         req = Request.blank('/v1/a/c/o?STATUS')
         resp = req.get_response(self.app)
@@ -76,7 +77,35 @@ class TestSwiftHLM(unittest.TestCase):
             ['/opt/ibm/swift-hlm-backend/status', 'a/c/o', '000000000000',
              'STATUS'])
         self.assertEquals(resp.status_int, 200)
-        self.assertIn('{"object": "/v1/a/c/o", "status": "resident', resp.body)
+        self.assertIn('{"object": "/a/c/o", "status": "resident', resp.body)
+
+    def test_get_container_status(self):
+        class MockResponse:
+            def __init__(self, headers, content, status_code):
+                self.headers = headers
+                self.content = content
+
+            def content(self):
+                return self.content
+
+                def headers(self):
+                    return self.headers
+
+        subprocess.check_output = mock.Mock(
+            return_value='{"object": "/a/c/o", "status": "resident"}')
+        random.choice = mock.Mock(return_value='0')
+        swifthlm.requests.get = mock.Mock(
+            return_value=MockResponse({"key1": "value1"}, "o\n", 200))
+
+        req = Request.blank('/v1/a/c?STATUS',
+                            headers={'X-Storage-Token': 'AUTH_t=='})
+        resp = req.get_response(self.app)
+
+        subprocess.check_output.assert_called_with(
+            ['/opt/ibm/swift-hlm-backend/status', 'a/c/o', '000000000000',
+             'STATUS'])
+        self.assertEquals(resp.status_int, 200)
+        self.assertIn('{"object": "/a/c/o", "status": "resident', resp.body)
 
     def test_invalid_get_status_POST(self):
         subprocess.check_output = mock.Mock(return_value='status output')
@@ -106,7 +135,7 @@ class TestSwiftHLM(unittest.TestCase):
             ['/opt/ibm/swift-hlm-backend/status', 'a/c/o', '000000000000',
              'STATUS'])
         self.assertEquals(resp.status_int, 200)
-        self.assertEquals(resp.body, '{"object": "/v1/a/c/o", "status": ""}\n')
+        self.assertEquals(resp.body, '{"object": "/a/c/o", "status": ""}\n')
 
     def test_filter_factory(self):
         factory = swifthlm.filter_factory({'migrate_backend': '/a/b/c/migrate',
