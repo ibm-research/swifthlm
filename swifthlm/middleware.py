@@ -46,8 +46,8 @@ Request must be POST with the query parameter ``?MIGRATE``
 
 For example::
 
-    /v1/AUTH_Account/Container/Object?MIGRATE
-    /v1/AUTH_Account/Container?MIGRATE
+    POST /v1/AUTH_Account/Container/Object?MIGRATE
+    POST /v1/AUTH_Account/Container?MIGRATE
 
 ------
 RECALL
@@ -59,8 +59,8 @@ Request must be POST with the query parameter ``?RECALL``
 
 For example::
 
-    /v1/AUTH_Account/Container/Object?RECALL
-    /v1/AUTH_Account/Container?RECALL
+    POST /v1/AUTH_Account/Container/Object?RECALL
+    POST /v1/AUTH_Account/Container?RECALL
 
 ------
 STATUS
@@ -73,8 +73,8 @@ Request must be GET with the query parameter
 
 For example::
 
-    /v1/AUTH_Account/Container/Object?STATUS
-    /v1/AUTH_Account/Container?STATUS
+    GET /v1/AUTH_Account/Container/Object?STATUS
+    GET /v1/AUTH_Account/Container?STATUS
 
 When ``format=json`` is added to the query parameter, the response body will be
 formatted in json format.
@@ -241,52 +241,45 @@ class HlmMiddleware(object):
         out = ''
         return status, out
 
-    def get_object_replicas_status(self, req, account, container, obj):
+    def get_object_replicas_status(self, env, start_response, req, account, container, obj):
         query = req.query_string or 'STATUS'
         ips = self.get_obj_storage_nodes(account, container, obj)
         replicas_status = []
         for ip_addr in ips:
-            if ip_addr in self.ips:
-                # Replica on this node, pass hlm request to backend
-                # TBD: support requestId as input
-                requestId = ''.join(random.choice(string.digits)
-                            for i in range(12))
-                try:
-                    out = subprocess.check_output([self.status_backend,
-                                                   req.path_info[4:],
-                                                   requestId,
-                                                   query])
-                except subprocess.CalledProcessError, e:
-                    out = OrderedDict([('object', req.path[3:]),
-                                       ('replica_node', ip_addr),
-                                       ('status', 'Unknown'),
-                                       ('error', e.output)])
-                self.logger.debug('Subprocess return: %s', str(out))
-                if 'FORWARDED' in query:
-                    # Request was forwarded, return success response
-                    rc = REMOTE_STATUS
-                    return rc, out, replicas_status
-                else:
-                    replicas_status.append(out)
-            elif 'FORWARDED' not in query:
-            # Replica on another node, request status remotely
-                # Get auth token
-                token = self.get_authentication_token(req, ip_addr)
-                # Forward hlm request
-                hlm_url = 'http://%(ip)s:8080%(url)s?FORWARDED&'\
-                          + query
-                hlm_fwd_req = hlm_url % {'ip': ip_addr,
-                                         'url': req.path}
-                headers = {'X-Storage-Token': token}
-                response = requests.get(hlm_fwd_req, headers=headers)
-                if response.status_code not in [HTTP_OK, HTTP_ACCEPTED]:
-                    out = OrderedDict([('object', req.path),
-                                       ('status', 'Unknown')])
-                    replicas_status.append(out)
-                else:
-                    replicas_status.append(response.content)
+            self.logger.debug('ip_addr: %s', ip_addr)
+            try: 
+                response = self.app(env, start_response)
+            except ValueError:
+                response = ''
+            x = list(response)
+            self.logger.debug('x: %s',x)
+            self.logger.debug('x[0]: %s',x[0])
+            resp = x[0].rstrip();
+            self.logger.debug('resp: %s', resp)
+            self.logger.debug('response: %s', response)
+            self.logger.debug('str(response): %s', str(response))
+            self.logger.debug('list(response): %s', str(list(response)))
+            #self.logger.debug('response+: %s', (list(response))[0])
+            self.logger.debug('after response, ip_addr: %s', ip_addr)
+            #if response.status_code not in [HTTP_OK, HTTP_ACCEPTED]:
+            #if True:
+            if False:
+                #out = OrderedDict([('object', req.path[3:]),
+                #                    ('status', 'Unknown')])
+                out = OrderedDict([('object', req.path[3:]),
+                                   ('replica_node', ip_addr),
+                                   ('status', 'resident')])
+
+                replicas_status.append(json.dumps(out))
+                #replicas_status.append('tbd')
+            else:
+                #replicas_status.append(response.content)
+                #replicas_status.append(list(response))
+                replicas_status.append(resp)
+                #replicas_status.append(ip_addr)
         rc = STATUS
         out = ''
+        self.logger.debug('replicas_status: %s', replicas_status)
         return rc, out, replicas_status
 
     # Prepare/format object status info for reporting (json is default format)
@@ -337,15 +330,22 @@ class HlmMiddleware(object):
             for replica_status in replicas_status:
                 if status != '':
                     status += '|'
+                self.logger.debug('replica_status: %s', replica_status)
+                self.logger.debug('replica_status(2): %s', str(replica_status))
                 try:
                     status += literal_eval(replica_status)['status']
+                    #self.logger.debug('status: %s', status)
                     if summarized_status == '':
                         summarized_status = literal_eval(
                             replica_status)['status']
-                    elif literal_eval(replica_status)['status'] != status:
+                    elif ( literal_eval(replica_status)['status'] !=
+                            summarized_status): 
                         summarized_status = 'undefined'
                 except ValueError:
+                    status += 'undef'
                     summarized_status = 'undefined'
+                    self.logger.debug('literal_eval error: %s', e)
+                self.logger.debug('status(2): %s', status)
             if 'summarized' in query:
                 out_dict = OrderedDict([('object', req.path[3:]),
                                         ('status', summarized_status)])
@@ -373,7 +373,7 @@ class HlmMiddleware(object):
                 out_dict.update({'file': files})
 
             # Prepare as a line string
-            out = json.dumps(out_dict)
+            out = json.dumps(out_dict) + '\n'
         return out
 
     def __call__(self, env, start_response):
@@ -387,7 +387,7 @@ class HlmMiddleware(object):
             return self.app(env, start_response)
         self.logger.debug(':%s:%s:%s:%s:', version, account, container, obj)
 
-        # If request is not HLM request or not a GET, it is not processed
+        # If request is not HLM request and not object GET, it is not processed
         # by this middleware
         method = req.method
         query = req.query_string or ''
@@ -437,41 +437,16 @@ class HlmMiddleware(object):
                 elif 'RECALL' in query:
                     hlm_req = 'RECALL'
                     hlm_backend = self.recall_backend
-                # submit hlm request for object replicas
-                status, out = self.submit_object_replicas_migration_recall(
-                    req, account, container, obj, hlm_req, hlm_backend)
-                self.logger.debug('submit_object_replicas_migration_recall()')
-                if status == SUBMITTED_FORWARDED_REQUEST:
-                    self.logger.debug('SUBMITTED_FORWARDED_REQUEST')
-                    return Response(status=HTTP_OK,
-                                    body='Accepted remote replica HLM request',
-                                    content_type="text/plain")(env,
-                                                               start_response)
-                elif status == FAILED_SUBMITTING_REQUEST:
-                    self.logger.debug('FAILED_SUBMITTING_REQUEST')
-                    return Response(status=HTTP_INTERNAL_SERVER_ERROR,
-                                    body=out,
-                                    content_type="text/plain")(env,
-                                                               start_response)
-                elif status == SUBMITTED_REQUESTS:
-                    self.logger.debug('SUBMITTED_REQUESTS')
-                    return Response(status=HTTP_OK,
-                                    body='Accepted %s request.\n' % hlm_req,
-                                    content_type="text/plain")(env,
-                                                               start_response)
-                else:  # invalid case
-                    self.logger.debug('INVALID_CASE')
-                    return Response(status=HTTP_INTERNAL_SERVER_ERROR,
-                                    body=out,
-                                    content_type="text/plain")(env,
-                                                               start_response)
+                # submit migration/recall request
+                response = self.app(env, start_response)
+                
 
         # Process GET object status request
         elif req.method == "GET" and obj:
             if 'STATUS' in query:
                 # Get status of each replica
                 rc, out, replicas_status = self.get_object_replicas_status(
-                    req, account, container, obj)
+                    env, start_response, req, account, container, obj)
                 if rc == REMOTE_STATUS:
                     # send the replica status to requester node
                     return Response(status=HTTP_OK,
@@ -481,7 +456,7 @@ class HlmMiddleware(object):
                 # Prepare/format object status info to report
                 # (json is default format)
                 out = self.format_object_status_info_for_reporting(
-                    req, replicas_status) + '\n'
+                    req, replicas_status)
                 # Report object status
                 return Response(status=HTTP_OK,
                                 body=out,
@@ -552,31 +527,6 @@ class HlmMiddleware(object):
                                     " successful.\n" % hlm_req,
                                     content_type="text/plain")(env,
                                                                start_response)
-            elif method == 'GET':
-                # submit hlm requests
-                accumulated_out = "["
-                for obj in objects:
-                    self.logger.debug('obj: %s', obj)
-
-                    # Get status of each replica
-                    # rewrite req.path to point to object instead of container
-                    req_orig_path = req.environ['PATH_INFO']
-                    req.environ['PATH_INFO'] += "/" + obj
-                    rc, out, replicas_status = self.get_object_replicas_status(
-                        req, account, container, obj)
-
-                    # Prepare/format object status info to report
-                    # (json is default format)
-                    accumulated_out += self.format_object_status_info_for_reporting(
-                        req, replicas_status) + ','
-
-                    req.environ['PATH_INFO'] = req_orig_path
-
-                # Report accumulated object status
-                accumulated_out = accumulated_out[:-1] + ']'
-                return Response(status=HTTP_OK,
-                                body=accumulated_out,
-                                content_type="text/plain")(env, start_response)
 
         return self.app(env, start_response)
 
