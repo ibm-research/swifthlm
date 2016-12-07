@@ -109,7 +109,7 @@ provided below in section "External Interface and Usage Examples".
     # mmobj config list --ccrfile proxy-server.conf --section pipeline:main --property pipeline
 
     Example output for the previous command:
-    pipeline = healthcheck cache formpost tempurl swift3 s3token authtoken keystoneauth container-quotas account-quotas staticweb bulk slo dlo hlm proxy-server
+    pipeline = healthcheck cache formpost tempurl swift3 s3token authtoken keystoneauth container-quotas account-quotas staticweb bulk slo dlo proxy-server
 
     Insert hlm before proxy-server and write back the configuration - for the above example:
     # mmobj config change --ccrfile proxy-server.conf --section pipeline:main --property pipeline --value "healthcheck cache formpost tempurl swift3 s3token authtoken keystoneauth container-quotas account-quotas staticweb bulk slo dlo hlm proxy-server"
