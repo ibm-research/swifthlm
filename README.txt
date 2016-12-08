@@ -129,6 +129,8 @@ To activate the middleware, restart Swift services:
   b) Spectrum Scale 4.1.1 or later:
     # mmces service start OBJ --all
 
+Note: Before SwiftHLM can be used (Section 7), an HLM Backend needs to be
+installed and configured (Section 6).
 
 6. HLM Backend
 ===============================================
