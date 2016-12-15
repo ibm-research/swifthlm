@@ -111,11 +111,26 @@ provided below in section "External Interface and Usage Examples".
     Example output for the previous command:
     pipeline = healthcheck cache formpost tempurl swift3 s3token authtoken keystoneauth container-quotas account-quotas staticweb bulk slo dlo proxy-server
 
-    Insert hlm before proxy-server and write back the configuration - for the above example:
-    # mmobj config change --ccrfile proxy-server.conf --section pipeline:main --property pipeline --value "healthcheck cache formpost tempurl swift3 s3token authtoken keystoneauth container-quotas account-quotas staticweb bulk slo dlo hlm proxy-server"
+    I) If you are using Spectrum Scale 4.2.0 and later:
+      Create a file called
+      /tmp/proxy-server.conf.merge
+      and fill it with the following contents, re-using the pipeline= line from the
+      previous command output with hlm added before proxy-server:
+      [pipeline:main]
+      pipeline =  healthcheck cache formpost tempurl swift3 s3token authtoken keystoneauth container-quotas account-quotas staticweb bulk slo dlo hlm proxy-server
 
-    Register the swifthlm middleware:
-    # mmobj config change --ccrfile proxy-server.conf --section filter:hlm --property use --value egg:swifthlm#swifthlm
+      [filter:hlm]
+      use = egg:swifthlm#swifthlm
+
+      To write back the configuration and register the swifthlm middleware, run:
+      # mmobj config change --ccrfile proxy-server.conf --merge-file /tmp/proxy-server.conf.merge
+
+    II) For Spectrum Scale 4.1.x:
+      Insert hlm before proxy-server and write back the configuration - for the above example:
+      # mmobj config change --ccrfile proxy-server.conf --section pipeline:main --property pipeline --value "healthcheck cache formpost tempurl swift3
+
+      Register the swifthlm middleware:
+      # mmobj config change --ccrfile proxy-server.conf --section filter:hlm --property use --value egg:swifthlm#swifthlm
 
 5. Activate
 ===============================================
@@ -179,7 +194,7 @@ for the above example the configuration entries would be as follows:
 
 # High latency media (hlm) middleware
 [filter:hlm]
-use = egg:swift#hlm
+use = egg:swifthlm#swifthlm
 migrate_backend = /install/swift-backend/swift-hlm-cli/mig
 recall_backend = /install/swift-backend/swift-hlm-cli/rec
 status_backend = /install/swift-backend/swift-hlm-cli/status
