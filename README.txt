@@ -127,7 +127,7 @@ provided below in section "External Interface and Usage Examples".
 
     II) For Spectrum Scale 4.1.x:
       Insert hlm before proxy-server and write back the configuration - for the above example:
-      # mmobj config change --ccrfile proxy-server.conf --section pipeline:main --property pipeline --value "healthcheck cache formpost tempurl swift3
+      # mmobj config change --ccrfile proxy-server.conf --section pipeline:main --property pipeline --value "healthcheck cache formpost tempurl swift3 s3token authtoken keystoneauth container-quotas account-quotas staticweb bulk slo dlo hlm proxy-server" 
 
       Register the swifthlm middleware:
       # mmobj config change --ccrfile proxy-server.conf --section filter:hlm --property use --value egg:swifthlm#swifthlm
