@@ -167,17 +167,17 @@ class HlmMiddleware(object):
         return ips
 
     def get_authentication_token(self, req, ip_addr):
-        # If Keystone authentication (need test)
-        cur_token = req.headers['X-Storage-Token']
-        if cur_token[0:3] == 'KEY' or cur_token[-2:] == '==':
-            return cur_token
+        # Check for Keystone authentication
+        cfg = ConfigParser.RawConfigParser()
+        configFile = r'/etc/swift/proxy-server.conf'
+        cfg.read(configFile)
+        pipeline = cfg.get('pipeline:main', 'pipeline')
+        if 'keystoneauth' in pipeline:
+            return req.headers['X-Storage-Token']
         # Tempauth
         remote_user = req.remote_user
         account_user_aux = remote_user.split(',')[1]
         account_user = account_user_aux.replace(':', '_')
-        cfg = ConfigParser.RawConfigParser()
-        configFile = r'/etc/swift/proxy-server.conf'
-        cfg.read(configFile)
         remote_key = cfg.get('filter:tempauth', 'user_'
                              + account_user).split(' ')[0]
         # TODO: consider pros/cons of using admin account
