@@ -17,26 +17,27 @@ SwiftHLM (Swift Hight-Latency Media) middleware
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-### Version: 0.1
+### Version: 0.2.1
 
 ### Authors:
 Slavisa Sarafijanovic (sla@zurich.ibm.com)
 Harald Seipp (seipp@de.ibm.com)
 
 ### Content:
-1. Description
+1. Description (Function Overview)
 2. Requirements
 3. Install
 4. Configure
 5. Activate
 6. HLM Backend
 7. External Interface and Usage Examples 
-8. References
+8. Desing/internals Overview
+9. References
 
-1. Description
+1. Description (Function Overview)
 ===============================================
 
-SwiftHLM middleware is useful for running OpenStack Swift on top of high
+SwiftHLM is useful for running OpenStack Swift on top of high
 latency media (HLM) storage, such as tape or optical disk archive based
 backends, allowing to store cheaply and access efficiently large amounts of
 infrequently used object data.
@@ -61,20 +62,35 @@ and for various reasons as discussed in [5]. In [5] it is also explained how
 SwiftHLM function can be orthogonal and complementary to Swift (ring to ring)
 tiering [6].
 
-SwiftHLM version 0.1 provides the following basic HLM functions on the external
+SwiftHLM version 0.2.1 provides the following basic HLM functions on the external
 Swift interface:
+
 - MIGRATE (container or an object from disk to HLM)
-- RECALL (i.e. prefetch a container or an object from HLM to disk) 
-- STATUS (get status for an object or a container objects).
+- RECALL (i.e. prefetch a container or an object from HLM to disk)
+- STATUS (get status for a container or an object)
+- REQUESTS (get status of migration and recall requests previously submitted
+  for a contaner or an object).
+
+MIGRATE and RECALL are asynchronous operations, meaning that the request from
+user is queued and user's call is responded immediately, then the request is
+processed as a background task. Requests are currently processed in a FIFO
+manner (scheduling optimizations are future work).  REQUESTS and STATUS are
+synchronous operations that block the user's call until the queried information
+is collected and returned.
 
 Detailed (still exemplary and not standardized) syntax and usage examples are 
-provided below in section "External Interface and Usage Examples".
+provided below in section "7. External Interface and Usage Examples".
 
+For each of these functions, SwiftHLM Middleware invokes additional SwiftHLM
+components to perform the task, which includes calls to HLM storage backend,
+for which a generic backend interface is defined below in section "6. HLM
+Backend". Description of other components is provided in the header of
+the implementation file for each component. 
 
 2. Requirements
 =============================================== 
 
-- OpenStack Swift Juno (tested) or Kilo (tested) or a later release (not
+- OpenStack Swift Juno, Kilo, or Liberty (tested) or a later release (not
   tested)
 - HLM backend that supports SwiftHLM functions, see HLM Backend section below
   for details
@@ -84,11 +100,19 @@ provided below in section "External Interface and Usage Examples".
 3. Install
 ===============================================
 
+    Unpack swifthlm.tgz into /opt/swifthlm
+    Alternatively get it from https://github.com/ibm-research/swifthlm, and
+    store into /opt/swifthlm
+
+    Then:
+    # cd /opt/swifthlm
     # python setup.py install
 
 
 4. Configure
 ===============================================
+
+4.1. Configure SwiftHLM middleware to work with Swift
 
   a) If Swift is installed from source
     Modify Swift's configuration file /etc/swift/proxy-server.conf to include hlm middleware.
@@ -101,7 +125,7 @@ provided below in section "External Interface and Usage Examples".
       [filter:hlm]
       use = egg:swifthlm#swifthlm
 
-  b) If Swift installed as part of Spectrum Scale 4.1.1 and later:
+  b) If Swift installed as part of Spectrum Scale 4.2.1 and later:
 
     # mmces service stop OBJ --all
 
@@ -111,13 +135,12 @@ provided below in section "External Interface and Usage Examples".
     Example output for the previous command:
     pipeline = healthcheck cache formpost tempurl swift3 s3token authtoken keystoneauth container-quotas account-quotas staticweb bulk slo dlo proxy-server
 
-    I) If you are using Spectrum Scale 4.2.0 and later:
-      Create a file called
-      /tmp/proxy-server.conf.merge
-      and fill it with the following contents, re-using the pipeline= line from the
-      previous command output with hlm added before proxy-server:
-      [pipeline:main]
-      pipeline =  healthcheck cache formpost tempurl swift3 s3token authtoken keystoneauth container-quotas account-quotas staticweb bulk slo dlo hlm proxy-server
+    Create a file called
+    /tmp/proxy-server.conf.merge
+    and fill it with the following contents, re-using the pipeline= line from the
+    previous command output with hlm added before proxy-server:
+    [pipeline:main]
+    pipeline =  healthcheck cache formpost tempurl swift3 s3token authtoken keystoneauth container-quotas account-quotas staticweb bulk slo dlo hlm proxy-server
 
       [filter:hlm]
       use = egg:swifthlm#swifthlm
@@ -125,18 +148,18 @@ provided below in section "External Interface and Usage Examples".
       To write back the configuration and register the swifthlm middleware, run:
       # mmobj config change --ccrfile proxy-server.conf --merge-file /tmp/proxy-server.conf.merge
 
-    II) For Spectrum Scale 4.1.x:
-      Insert hlm before proxy-server and write back the configuration - for the above example:
-      # mmobj config change --ccrfile proxy-server.conf --section pipeline:main --property pipeline --value "healthcheck cache formpost tempurl swift3 s3token authtoken keystoneauth container-quotas account-quotas staticweb bulk slo dlo hlm proxy-server" 
+4.2 Configure swift user passwordless ssh between the Swift nodes. Swift user
+is not a privileged user and cannot execute privileged operations.
 
-      Register the swifthlm middleware:
-      # mmobj config change --ccrfile proxy-server.conf --section filter:hlm --property use --value egg:swifthlm#swifthlm
+Steps:
+- use ssh-keygen to generate RSA keys on Dispatcher node
+- cp content of /home/swift/.ssh/id_rsa.pub from Dispatcher node into
+  /home/swift/.ssh/authorized_keys on storage nodes 
 
 5. Activate
 ===============================================
 
 To activate the middleware, restart Swift services:
-
 
   a) Swift installed from source:
     # swift-init main reload
@@ -147,6 +170,12 @@ To activate the middleware, restart Swift services:
 Note: Before SwiftHLM can be used (Section 7), an HLM Backend needs to be
 installed and configured (Section 6).
 
+To start SwiftHLM Dispatcher service (one one node, e.g. a proxy node):
+    # python -m swifthlm.dispatcher &
+    # to stop it:
+    # kill $(pgrep -f 'python -m swifthlm.dispatcher')
+    # TODO: look for a better way run the dispatcher background process
+
 6. HLM Backend
 ===============================================
 
@@ -156,261 +185,348 @@ interface and a Swift ring definition), plus it needs to additionally support
 processing and responding requests from SwiftHLM middleware for performing
 SwiftHLM functions.
 
-This additional SwiftHLM middleware to HLM backend interface is aimed to be
-configurable and a particular HLM backend needs to support at least one of the
-two options:
-a) The backend accepts and responds requests from SwiftHLM via a CLI interface
-b) SwiftHLM communicates to the backend via a pair of object extended
-attributes, the requested state (RS) set by SwiftHLM and read by the backend,
-and the current state (CS) set by the backend and read by the SwiftHLM. E.g. if
-a Swift application requests migrating a container to HLM, SwiftHLM middleware
-identifies the involved objects and updates RS for each, and the backend either
-intercepts or scans RS updates, performs data migration, and updates CS.
+SwiftHLM Handler is the component of SwiftHLM = that invokes backend HLM
+operations via SwiftHLM generick backend interface (GBI). For each backend a
+Connector needs to be implemented that maps GBI requests to the backend HLM
+operatins. Location of the Connector executable needs to be configured in
+object-server.conf file on the storage nodes. Example of content that needs to
+be added to this file is:
 
-Depending on the implementation feasibility and desired processing efficiency,
-different HLM backends may prefer one option over the other.
+### High latency media (hlm) configuration on storage node
+[hlm]
+## You can override the default log level here:
+# set log_level = INFO
+set log_level = DEBUG
+## Backend connector that will be used is defined here
+# Dummy Connector/Backend - used by default if no connector is defined
+#backend_connector_module = swifthlm.dummy_connector
+# IBM Connector
+# Define EITHER connector_module:
+#backend_connector_module = TODO (currently uses _dir and _filename)
+# OR connector_dir and connector_filename:
+backend_connector_dir = /opt/ibm/swifthlmconnector
+backend_connector_filename = connector.py
+## Location for temporary swifthlm files
+# Dummy Connector/Backend
+#swifthlm_tmp_dir = /tmp/swifthlm
+# IBM Connector/Backend
+swifthlm_tmp_dir = /ibm/gpfs/tmp/swifthlm
 
-Importantly, whatever option is configured and used SwiftHLM exposes the same
-external interface to the applications.
 
-Current SwiftHLM (Version 0.1) only supports option a, and this option by
-default assumes the backend executables for supporting SwiftHLM operations are
-stored (installed) as:
-/opt/ibm/swift-hlm-backend/migrate
-/opt/ibm/swift-hlm-backend/recall
-/opt/ibm/swift-hlm-backend/status
-
-for the MIGRATE, RECALL, and STATUS function respectively.
-
-If your backend executables to support SwiftHLM need to be installed to a
-different location or named differently, e.g.: 
-
-/install/swift-backend/swift-hlm-cli/mig
-/install/swift-backend/swift-hlm-cli/rec
-/install/swift-backend/swift-hlm-cli/status
-
-... then configure that in /etc/proxy-server.conf under [filter:hlm] section,
-for the above example the configuration entries would be as follows: 
-
-# High latency media (hlm) middleware
-[filter:hlm]
-use = egg:swifthlm#swifthlm
-migrate_backend = /install/swift-backend/swift-hlm-cli/mig
-recall_backend = /install/swift-backend/swift-hlm-cli/rec
-status_backend = /install/swift-backend/swift-hlm-cli/status
-
-The inputs/output for the executables are:
-* migrate, recall: 
-in: path, requestId
-out: accept_request_return_code
-* status:
-in: path, requestId
-out: status result, one line per object
-
-... where:
-'path' is a container or an object path written as account/container, e.g.
-test/cont1, or as account/container/object, e.g. test/cont1/obj0,
-'requestId' is a 12 bits long integer (aimed for referring related request, so
-far randomly generated by SwiftHLM and not used),
-'accept_request_return_code' is 0 if request is accepted, else another value, 
-'status result' is multiple lines of standard output, one per involved object
-reporting the status of the object in the following format (format is not yet
-standardized, it might be useful to standardize it):  each containing one line
-per involved object.
-
-The above syntax is still exemplary. The interface between SwiftHLM and HLM
-backends in not yet fixed or standardized, which would be useful to do in order
-to ensure wide SwiftHLM acceptance and backend compatibility.
-
+TODO: support backend connectors installed as python module, w/o removing
+support for backend connectors that are not installed as pyhon module but
+installed to arbitrary directory.
+In that case the backend connector module name will need to be provide in the
+config file instead the dir and filename of the connector .py file.
 
 7. External Interface and Usage Examples 
 ===============================================
 
-The external Swift interface (SwitHLM extension of it) syntax is still exemplary
-and not standardized.
 
 * Syntax for using SwiftHLM enabled Swift via a standard (unmodified) curl Swift client:
 
-# curl -v -H 'X-Storage-Token: AUTH_tk2c0714aa645d40268a753293c678062f' -X GET http://zagreb.zurich.ibm.com:8080/v1/AUTH_test/contT1?STATUS
-# curl -v -H 'X-Storage-Token: AUTH_tk2c0714aa645d40268a753293c678062f' -X POST http://zagreb.zurich.ibm.com:8080/v1/AUTH_test/contT1/obj0?MIGRATE
-# curl -v -H 'X-Storage-Token: AUTH_tk2c0714aa645d40268a753293c678062f' -X POST http://zagreb.zurich.ibm.com:8080/v1/AUTH_test/contT1/obj0?RECALL
+curl -H "X-Auth-Token: $TOKEN" -X POST "http://zagreb.zurich.ibm.com:8080/hlm/v1/migrate/AUTH_test/cont1
+curl -H "X-Auth-Token: $TOKEN" -X POST "http://zagreb.zurich.ibm.com:8080/hlm/v1/recall/AUTH_test/cont1
+curl -H "X-Auth-Token: $TOKEN" -X GET "http://zagreb.zurich.ibm.com:8080/hlm/v1/status/AUTH_test/cont1
+curl -H "X-Auth-Token: $TOKEN" -X GET "http://zagreb.zurich.ibm.com:8080/hlm/v1/requests/AUTH_test/cont1
+
 
 * Examples of outputs for the above commands:
 
-###### Get status of all objects within container contT1:
+##### Get status of Object cont3/obj00:
 
-[root@zagreb objects]# curl -v -H 'X-Storage-Token: AUTH_tk2da86b9403ea42389d34863ccee7ffbf' -X GET http://127.0.0.1:8080/v1/AUTH_test/contT1?STATUS
-* About to connect() to 127.0.0.1 port 8080 (#0)
-*   Trying 127.0.0.1... connected
-* Connected to 127.0.0.1 (127.0.0.1) port 8080 (#0)
-> GET /v1/AUTH_test/contT1?STATUS HTTP/1.1
-> User-Agent: curl/7.19.7 (x86_64-redhat-linux-gnu) libcurl/7.19.7 NSS/3.18 Basic ECC zlib/1.2.3 libidn/1.18 libssh2/1.4.2
-> Host: 127.0.0.1:8080
-> Accept: */*
-> X-Storage-Token: AUTH_tk2da86b9403ea42389d34863ccee7ffbf
->
-< HTTP/1.1 200 OK
-< Content-Length: 918
-< Content-Type: text/plain
-< X-Trans-Id: txc1eba7ae46884ed8a8b12-0056967686
-< Date: Wed, 13 Jan 2016 16:08:40 GMT
-<
-Object                        Status      File                                                                                      Tape
-/AUTH_test/contT1/obj4        migrated    /srv/node/gpfs/objects-1/793/c83/1ff7a53aa6761f86cb78a16d7cca1c83/1434101306.98312.data   B00030L6
-/AUTH_test/contT1/obj3        migrated    /srv/node/gpfs/objects-1/793/1e6/738bfb424ee92f77a46a425f31d031e6/1434101306.98268.data   B00030L6
-/AUTH_test/contT1/obj2        migrated    /srv/node/gpfs/objects-1/793/188/7a48e033bb9cd35c7c0c7e87c7e1b188/1437749052.56079.data   B00030L6
-/AUTH_test/contT1/obj1        migrated    /srv/node/gpfs/objects-1/793/ef2/cf734da8ff85334ed4b526e0226e6ef2/1438000722.65429.data   B00030L6
-/AUTH_test/contT1/obj0        resident    /srv/node/gpfs/objects-1/793/aac/006e3939ccbd5d8801bcfaa318941aac/1452701309.62247.data   -
-* Connection #0 to host 127.0.0.1 left intact
-* Closing connection #0
+[root@belgrade ~]# time curl -H "X-Auth-Token: $TOKEN" -X GET "http://zagreb:8080/hlm/v1/status/AUTH_test/cont3/obj00" | python -mjson.tool
+  % Total    % Received % Xferd  Average Speed   Time    Time     Time  Current
+                                 Dload  Upload   Total   Spent    Left  Speed
+100    38  100    38    0     0     46      0 --:--:-- --:--:-- --:--:--    46
+{
+    "/AUTH_test/cont3/obj00": "resident"
+}
 
-###### Get status of single object obj0 within container contT1:
+real    0m0.831s
+user    0m0.017s
+sys     0m0.008s
+[root@belgrade ~]#
 
-[root@zagreb objects]# curl -v -H 'X-Storage-Token: AUTH_tk2da86b9403ea42389d34863ccee7ffbf' -X GET http://127.0.0.1:8080/v1/AUTH_test/contT1/obj0?STATUS
-* About to connect() to 127.0.0.1 port 8080 (#0)
-*   Trying 127.0.0.1... connected
-* Connected to 127.0.0.1 (127.0.0.1) port 8080 (#0)
-> GET /v1/AUTH_test/contT1/obj0?STATUS HTTP/1.1
-> User-Agent: curl/7.19.7 (x86_64-redhat-linux-gnu) libcurl/7.19.7 NSS/3.18 Basic ECC zlib/1.2.3 libidn/1.18 libssh2/1.4.2
-> Host: 127.0.0.1:8080
-> Accept: */*
-> X-Storage-Token: AUTH_tk2da86b9403ea42389d34863ccee7ffbf
->
-< HTTP/1.1 200 OK
-< Content-Length: 306
-< Content-Type: text/plain
-< X-Trans-Id: tx1a280a87c49c4cbf80bec-00569676c8
-< Date: Wed, 13 Jan 2016 16:09:45 GMT
-<
-Object                        Status      File                                                                                      Tape
-/AUTH_test/contT1/obj0        resident    /srv/node/gpfs/objects-1/793/aac/006e3939ccbd5d8801bcfaa318941aac/1452701309.62247.data   -
-* Connection #0 to host 127.0.0.1 left intact
-* Closing connection #0
+##### Get status of all Objects of Container cont3:
 
-###### Migrate obj0 to Tape:
+[root@belgrade ~]# time curl -H "X-Auth-Token: $TOKEN" -X GET "http://zagreb:8080/hlm/v1/status/AUTH_test/cont3" | python -mjson.tool
+  % Total    % Received % Xferd  Average Speed   Time    Time     Time  Current
+                                 Dload  Upload   Total   Spent    Left  Speed
+100   114  100   114    0     0    128      0 --:--:-- --:--:-- --:--:--   128
+{
+    "/AUTH_test/cont3/obj00": "resident",
+    "/AUTH_test/cont3/obj01": "resident",
+    "/AUTH_test/cont3/obj02": "resident"
+}
 
-[root@zagreb objects]# curl -v -H 'X-Storage-Token: AUTH_tk2da86b9403ea42389d34863ccee7ffbf' -X POST http://127.0.0.1:8080/v1/AUTH_test/contT1/obj0?MIGRATE
-* About to connect() to 127.0.0.1 port 8080 (#0)
-*   Trying 127.0.0.1... connected
-* Connected to 127.0.0.1 (127.0.0.1) port 8080 (#0)
-> POST /v1/AUTH_test/contT1/obj0?MIGRATE HTTP/1.1
-> User-Agent: curl/7.19.7 (x86_64-redhat-linux-gnu) libcurl/7.19.7 NSS/3.18 Basic ECC zlib/1.2.3 libidn/1.18 libssh2/1.4.2
-> Host: 127.0.0.1:8080
-> Accept: */*
-> X-Storage-Token: AUTH_tk2da86b9403ea42389d34863ccee7ffbf
->
-< HTTP/1.1 200 OK
-< Content-Length: 28
-< Content-Type: text/plain
-< X-Trans-Id: txab9a433ab13c4de9bfdb1-00569676a5
-< Date: Wed, 13 Jan 2016 16:09:09 GMT
-<
-Accepted migration request.
-* Connection #0 to host 127.0.0.1 left intact
-* Closing connection #0
+real    0m0.892s
+user    0m0.016s
+sys     0m0.007s
+[root@belgrade ~]#
 
-###### Get status of Object obj0 (now migrated to tape):
+##### Migrate Object cont3/obj00:
 
-[root@zagreb objects]# curl -v -H 'X-Storage-Token: AUTH_tk2da86b9403ea42389d34863ccee7ffbf' -X GET http://127.0.0.1:8080/v1/AUTH_test/contT1/obj0?STATUS
-* About to connect() to 127.0.0.1 port 8080 (#0)
-*   Trying 127.0.0.1... connected
-* Connected to 127.0.0.1 (127.0.0.1) port 8080 (#0)
-> GET /v1/AUTH_test/contT1/obj0?STATUS HTTP/1.1
-> User-Agent: curl/7.19.7 (x86_64-redhat-linux-gnu) libcurl/7.19.7 NSS/3.18 Basic ECC zlib/1.2.3 libidn/1.18 libssh2/1.4.2
-> Host: 127.0.0.1:8080
-> Accept: */*
-> X-Storage-Token: AUTH_tk2da86b9403ea42389d34863ccee7ffbf
->
-< HTTP/1.1 200 OK
-< Content-Length: 306
-< Content-Type: text/plain
-< X-Trans-Id: tx74cfa3546e794878afe01-00569676e6
-< Date: Wed, 13 Jan 2016 16:10:14 GMT
-<
-Object                        Status      File                                                                                      Tape
-/AUTH_test/contT1/obj0        migrated    /srv/node/gpfs/objects-1/793/aac/006e3939ccbd5d8801bcfaa318941aac/1452701309.62247.data   B00030L6
-* Connection #0 to host 127.0.0.1 left intact
-* Closing connection #0
+[root@belgrade ~]#
+[root@belgrade ~]# time curl -H "X-Auth-Token: $TOKEN" -X POST "http://zagreb:8080/hlm/v1/migrate/AUTH_test/cont3/obj00"
+Accepted migrate request.
 
-###### Get status of all objects within Container contT1:
+real    0m0.058s
+user    0m0.001s
+sys     0m0.003s
+[root@belgrade ~]#
 
-[root@zagreb objects]# curl -v -H 'X-Storage-Token: AUTH_tk2da86b9403ea42389d34863ccee7ffbf' -X GET http://127.0.0.1:8080/v1/AUTH_test/contT1?STATUS
-* About to connect() to 127.0.0.1 port 8080 (#0)
-*   Trying 127.0.0.1... connected
-* Connected to 127.0.0.1 (127.0.0.1) port 8080 (#0)
-> GET /v1/AUTH_test/contT1?STATUS HTTP/1.1
-> User-Agent: curl/7.19.7 (x86_64-redhat-linux-gnu) libcurl/7.19.7 NSS/3.18 Basic ECC zlib/1.2.3 libidn/1.18 libssh2/1.4.2
-> Host: 127.0.0.1:8080
-> Accept: */*
-> X-Storage-Token: AUTH_tk2da86b9403ea42389d34863ccee7ffbf
->
-< HTTP/1.1 200 OK
-< Content-Length: 918
-< Content-Type: text/plain
-< X-Trans-Id: txc80083cb65974a6383b40-0056967704
-< Date: Wed, 13 Jan 2016 16:10:46 GMT
-<
-Object                        Status      File                                                                                      Tape
-/AUTH_test/contT1/obj4        migrated    /srv/node/gpfs/objects-1/793/c83/1ff7a53aa6761f86cb78a16d7cca1c83/1434101306.98312.data   B00030L6
-/AUTH_test/contT1/obj3        migrated    /srv/node/gpfs/objects-1/793/1e6/738bfb424ee92f77a46a425f31d031e6/1434101306.98268.data   B00030L6
-/AUTH_test/contT1/obj2        migrated    /srv/node/gpfs/objects-1/793/188/7a48e033bb9cd35c7c0c7e87c7e1b188/1437749052.56079.data   B00030L6
-/AUTH_test/contT1/obj1        migrated    /srv/node/gpfs/objects-1/793/ef2/cf734da8ff85334ed4b526e0226e6ef2/1438000722.65429.data   B00030L6
-/AUTH_test/contT1/obj0        migrated    /srv/node/gpfs/objects-1/793/aac/006e3939ccbd5d8801bcfaa318941aac/1452701309.62247.data   B00030L6
-* Connection #0 to host 127.0.0.1 left intact
-* Closing connection #0
+##### Check if request to migrate Object cont3/obj00 is completed:
 
-###### Recall all objects of Container contT1 back to disk:
+[root@belgrade ~]# time curl -H "X-Auth-Token: $TOKEN" -X GET "http://zagreb:8080/hlm/v1/requests/AUTH_test/cont3/obj00" | python -mjson.tool
+  % Total    % Received % Xferd  Average Speed   Time    Time     Time  Current
+                                 Dload  Upload   Total   Spent    Left  Speed
+100    68  100    68    0     0   1910      0 --:--:-- --:--:-- --:--:--  1942
+[
+    "20170303034043.566--migrate--AUTH_test--cont3--0--obj00--pending"
+]
 
-[root@zagreb objects]# curl -v -H 'X-Storage-Token: AUTH_tk2da86b9403ea42389d34863ccee7ffbf' -X POST http://127.0.0.1:8080/v1/AUTH_test/contT1?RECALL
-* About to connect() to 127.0.0.1 port 8080 (#0)
-*   Trying 127.0.0.1... connected
-* Connected to 127.0.0.1 (127.0.0.1) port 8080 (#0)
-> POST /v1/AUTH_test/contT1?RECALL HTTP/1.1
-> User-Agent: curl/7.19.7 (x86_64-redhat-linux-gnu) libcurl/7.19.7 NSS/3.18 Basic ECC zlib/1.2.3 libidn/1.18 libssh2/1.4.2
-> Host: 127.0.0.1:8080
-> Accept: */*
-> X-Storage-Token: AUTH_tk2da86b9403ea42389d34863ccee7ffbf
->
-< HTTP/1.1 200 OK
-< Content-Length: 25
-< Content-Type: text/plain
-< X-Trans-Id: tx55328fbc368a40029c2cd-0056967710
-< Date: Wed, 13 Jan 2016 16:10:56 GMT
-<
+real    0m0.041s
+user    0m0.017s
+sys     0m0.007s
+[root@belgrade ~]#
+
+[root@belgrade ~]# time curl -H "X-Auth-Token: $TOKEN" -X GET "http://zagreb:8080/hlm/v1/requests/AUTH_test/cont3/obj00" | python -mjson.tool
+  % Total    % Received % Xferd  Average Speed   Time    Time     Time  Current
+                                 Dload  Upload   Total   Spent    Left  Speed
+100    53  100    53    0     0   1566      0 --:--:-- --:--:-- --:--:--  1606
+[
+    "There are no pending or failed SwiftHLM requests."
+]
+
+real    0m0.039s
+user    0m0.013s
+sys     0m0.010s
+[root@belgrade ~]#
+
+##### Get status of all Objects of Container cont3:
+
+[root@belgrade ~]# time curl -H "X-Auth-Token: $TOKEN" -X GET "http://zagreb:8080/hlm/v1/status/AUTH_test/cont3" | python -mjson.tool
+  % Total    % Received % Xferd  Average Speed   Time    Time     Time  Current
+                                 Dload  Upload   Total   Spent    Left  Speed
+100   114  100   114    0     0    115      0 --:--:-- --:--:-- --:--:--   115
+{
+    "/AUTH_test/cont3/obj00": "migrated",
+    "/AUTH_test/cont3/obj01": "resident",
+    "/AUTH_test/cont3/obj02": "resident"
+}
+
+real    0m0.991s
+user    0m0.013s
+sys     0m0.010s
+[root@belgrade ~]#
+
+##### Migrate entire container cont3 (but make tape backend unavailable on one of the storage nodes):
+
+ot@belgrade ~]# time curl -H "X-Auth-Token: $TOKEN" -X POST "http://zagreb:8080/hlm/v1/migrate/AUTH_test/cont3"
+Accepted migrate request.
+
+real    0m0.062s
+user    0m0.003s
+sys     0m0.003s
+[root@belgrade ~]#
+
+##### Check requests for Container cont3:
+
+[root@belgrade ~]# time curl -H "X-Auth-Token: $TOKEN" -X GET "http://zagreb:8080/hlm/v1/requests/AUTH_test/cont3" | python -mjson.tool
+  % Total    % Received % Xferd  Average Speed   Time    Time     Time  Current
+                                 Dload  Upload   Total   Spent    Left  Speed
+100    61  100    61    0     0   1923      0 --:--:-- --:--:-- --:--:--  1967
+[
+    "20170303034800.465--migrate--AUTH_test--cont3--0--pending"
+]
+
+real    0m0.039s
+user    0m0.015s
+sys     0m0.007s
+[root@belgrade ~]#
+
+[root@belgrade ~]# time curl -H "X-Auth-Token: $TOKEN" -X GET "http://zagreb:8080/hlm/v1/requests/AUTH_test/cont3" | python -mjson.tool
+  % Total    % Received % Xferd  Average Speed   Time    Time     Time  Current
+                                 Dload  Upload   Total   Spent    Left  Speed
+100    60  100    60    0     0   1673      0 --:--:-- --:--:-- --:--:--  1714
+[
+    "20170303034800.465--migrate--AUTH_test--cont3--0--failed"
+]
+
+real    0m0.041s
+user    0m0.015s
+sys     0m0.008s
+[root@belgrade ~]#
+
+##### Get status of all Objects of Container cont3 (tape backend is fixed and again available):
+
+[root@belgrade ~]# time curl -H "X-Auth-Token: $TOKEN" -X GET "http://zagreb:8080/hlm/v1/status/AUTH_test/cont3" | python -mjson.tool
+  % Total    % Received % Xferd  Average Speed   Time    Time     Time  Current
+                                 Dload  Upload   Total   Spent    Left  Speed
+100   113  100   113    0     0    103      0  0:00:01  0:00:01 --:--:--   103
+{
+    "/AUTH_test/cont3/obj00": "migrated",
+    "/AUTH_test/cont3/obj01": "unknown",
+    "/AUTH_test/cont3/obj02": "migrated"
+}
+
+real    0m1.103s
+user    0m0.014s
+sys     0m0.009s
+[root@belgrade ~]#
+
+##### Resubmit migration for Container cont3:
+
+[root@belgrade ~]# time curl -H "X-Auth-Token: $TOKEN" -X POST "http://zagreb:8080/hlm/v1/migrate/AUTH_test/cont3"
+Accepted migrate request.
+
+real    0m0.057s
+user    0m0.000s
+sys     0m0.004s
+[root@belgrade ~]#
+[root@belgrade ~]#
+[root@belgrade ~]#
+
+##### Check requests for Container cont3:
+
+[root@belgrade ~]# time curl -H "X-Auth-Token: $TOKEN" -X GET "http://zagreb:8080/hlm/v1/requests/AUTH_test/cont3" | python -mjson.tool
+  % Total    % Received % Xferd  Average Speed   Time    Time     Time  Current
+                                 Dload  Upload   Total   Spent    Left  Speed
+100   121  100   121    0     0   3275      0 --:--:-- --:--:-- --:--:--  3361
+[
+    "20170303035302.857--migrate--AUTH_test--cont3--0--pending",
+    "20170303034800.465--migrate--AUTH_test--cont3--0--failed"
+]
+
+real    0m0.043s
+user    0m0.015s
+sys     0m0.009s
+[root@belgrade ~]#
+
+[root@belgrade ~]# time curl -H "X-Auth-Token: $TOKEN" -X GET "http://zagreb:8080/hlm/v1/requests/AUTH_test/cont3" | python -mjson.tool
+  % Total    % Received % Xferd  Average Speed   Time    Time     Time  Current
+                                 Dload  Upload   Total   Spent    Left  Speed
+100    53  100    53    0     0   1780      0 --:--:-- --:--:-- --:--:--  1827
+[
+    "There are no pending or failed SwiftHLM requests."
+]
+
+real    0m0.035s
+user    0m0.011s
+sys     0m0.012s
+[root@belgrade ~]#
+
+##### Get status of Objects of Container cont3:
+
+[root@belgrade ~]# time curl -H "X-Auth-Token: $TOKEN" -X GET "http://zagreb:8080/hlm/v1/status/AUTH_test/cont3" | python -mjson.tool
+  % Total    % Received % Xferd  Average Speed   Time    Time     Time  Current
+                                 Dload  Upload   Total   Spent    Left  Speed
+100   114  100   114    0     0    104      0  0:00:01  0:00:01 --:--:--   105
+{
+    "/AUTH_test/cont3/obj00": "migrated",
+    "/AUTH_test/cont3/obj01": "migrated",
+    "/AUTH_test/cont3/obj02": "migrated"
+}
+
+real    0m1.092s
+user    0m0.017s
+sys     0m0.006s
+[root@belgrade ~]#
+
+##### Recall all Objects of Container cont3:
+
+[root@belgrade ~]# time curl -H "X-Auth-Token: $TOKEN" -X POST "http://zagreb:8080/hlm/v1/recall/AUTH_test/cont3"
 Accepted recall request.
-* Connection #0 to host 127.0.0.1 left intact
-* Closing connection #0
 
-###### Check status for all objects of Container contT1 (now on disk and tape, thus "premigrated"):
+real    0m0.064s
+user    0m0.000s
+sys     0m0.005s
+[root@belgrade ~]# time curl -H "X-Auth-Token: $TOKEN" -X GET "http://zagreb:8080/hlm/v1/requests/AUTH_test/cont3" | python -mjson.tool
+  % Total    % Received % Xferd  Average Speed   Time    Time     Time  Current
+                                 Dload  Upload   Total   Spent    Left  Speed
+100    53  100    53    0     0   1821      0 --:--:-- --:--:-- --:--:--  1827
+[
+    "There are no pending or failed SwiftHLM requests."
+]
 
-[root@zagreb objects]# curl -v -H 'X-Storage-Token: AUTH_tk2da86b9403ea42389d34863ccee7ffbf' -X GET http://127.0.0.1:8080/v1/AUTH_test/contT1?STATUS
-* About to connect() to 127.0.0.1 port 8080 (#0)
-*   Trying 127.0.0.1... connected
-* Connected to 127.0.0.1 (127.0.0.1) port 8080 (#0)
-> GET /v1/AUTH_test/contT1?STATUS HTTP/1.1
-> User-Agent: curl/7.19.7 (x86_64-redhat-linux-gnu) libcurl/7.19.7 NSS/3.18 Basic ECC zlib/1.2.3 libidn/1.18 libssh2/1.4.2
-> Host: 127.0.0.1:8080
-> Accept: */*
-> X-Storage-Token: AUTH_tk2da86b9403ea42389d34863ccee7ffbf
->
-< HTTP/1.1 200 OK
-< Content-Length: 918
-< Content-Type: text/plain
-< X-Trans-Id: tx4195a82165b54a4c89f3c-005696771d
-< Date: Wed, 13 Jan 2016 16:11:15 GMT
-<
-Object                        Status      File                                                                                      Tape
-/AUTH_test/contT1/obj4        premigrated /srv/node/gpfs/objects-1/793/c83/1ff7a53aa6761f86cb78a16d7cca1c83/1434101306.98312.data   B00030L6
-/AUTH_test/contT1/obj3        premigrated /srv/node/gpfs/objects-1/793/1e6/738bfb424ee92f77a46a425f31d031e6/1434101306.98268.data   B00030L6
-/AUTH_test/contT1/obj2        premigrated /srv/node/gpfs/objects-1/793/188/7a48e033bb9cd35c7c0c7e87c7e1b188/1437749052.56079.data   B00030L6
-/AUTH_test/contT1/obj1        premigrated /srv/node/gpfs/objects-1/793/ef2/cf734da8ff85334ed4b526e0226e6ef2/1438000722.65429.data   B00030L6
-/AUTH_test/contT1/obj0        premigrated /srv/node/gpfs/objects-1/793/aac/006e3939ccbd5d8801bcfaa318941aac/1452701309.62247.data   B00030L6
-* Connection #0 to host 127.0.0.1 left intact
-* Closing connection #0
-[root@zagreb objects]#
+real    0m0.035s
+user    0m0.011s
+sys     0m0.012s
+[root@belgrade ~]#
+
+##### Get status of Objects of Container cont3 (now on disk and tape, thus "premigrated"):
+
+[root@belgrade ~]# time curl -H "X-Auth-Token: $TOKEN" -X GET "http://zagreb:8080/hlm/v1/status/AUTH_test/cont3" | python -mjson.tool
+  % Total    % Received % Xferd  Average Speed   Time    Time     Time  Current
+                                 Dload  Upload   Total   Spent    Left  Speed
+100   123  100   123    0     0    125      0 --:--:-- --:--:-- --:--:--   125
+{
+    "/AUTH_test/cont3/obj00": "premigrated",
+    "/AUTH_test/cont3/obj01": "premigrated",
+    "/AUTH_test/cont3/obj02": "premigrated"
+}
+
+real    0m0.986s
+user    0m0.015s
+sys     0m0.007s
+[root@belgrade ~]#
+
+##### 
 
 
-8. References
+8. Design/Internals Overview
+
+This section provides overview of SwiftHLM components and their join operation
+for providing the function described in section 1.
+
+SwiftHLM workflow for processing MIGRATION requests (and it is same for RECALL
+requests) is as follows.  SwiftHLM middleware on proxy server intrcepts
+SwiftHLM migration requests and queues them inside Swift, by storing them into
+a special HLM-dedicated container as zero size objects.  After SwiftHLM request
+is queued, 202 code is returned to the application.
+
+Another SwiftHLM process, called SwiftHLM Dispatcher, is processing the queued
+requests asynchronously with respect to user/application that submitted them.
+It picks a request from the queue, in FIFO or a more advance manner, and groups
+the requests into one list per involved storage node. 
+
+For each storage node/list Dispatcher invokes remotely a SwiftHLM program on
+that storage node (the name of that program is SwiftHLM Handler), and provides
+it with the list. Handler could also be a long running process listening for
+and processing submissions from Dispatcher. Either way, the function performed
+by Handler is to map the objects to files (or to HLM backend objects) and
+submits the file list and the migration requests to HLM backend, if the backend
+already provide the function to move data between LLM (low latency media) and
+HLM (hight latency media). Examples of backends with such function are IBM
+Spectrum Archive and BDT Tape Library Connector. 
+
+In order to support different backends, a Generic Backend Interface is defined
+and used by Handler to submit the request to HLM backend, via the backend
+specific Connector that maps the request to the backend specific API. If HLM
+backend does not support moving data and managing object state, the backend
+Connector needs to implement that function as well.
+
+Once the backend completes the operation the result (succes or failure) is
+propagated back to the dispatcher. In case of success, the request is removed
+from the queue, otherwise it is marked as failed and kept in the queue for some
+period (to be able to answer the request status queries). One could also
+consider implementing request retries. 
+
+Querying object status (STATUS) is processed by SwiftHLM middleware
+synchrounously, by groupping the queries per storage nodes and invoking the
+Handler (same as Dispatcher does for migration and recall), but for status the
+SwiftHLM middleware also merges the statuses reportd by the backend and
+provides the merged result to the Swift application.
+
+Querying requests status (REQUESTS) Query for requests status for an object or
+a container are processed by SwiftHLM middleware, by reading listing of the
+special HLM-dedicated container(s). If there are not pending (incompleted or
+failed) requests for a container, the previously submitted operations for that
+container may be considered completed. This is more efficient than to query
+state for each object of a container.
+
+9. References
 ===============================================
 [1] Amazon Glacier API, http://docs.aws.amazon.com/amazonglacier/latest/dev/amazon-glacier-api.html  
 [2] Amazon S3 integration with Glacier, https://aws.amazon.com/blogs/aws/archive-s3-to-glacier   
