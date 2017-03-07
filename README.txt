@@ -107,7 +107,8 @@ the implementation file for each component.
     Then:
     # cd /opt/swifthlm
     # python setup.py install
-
+    Note: in some cases the install command needs to be run two times (if
+    running it first time shows error)
 
 4. Configure
 ===============================================
