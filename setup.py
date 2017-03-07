@@ -1,7 +1,7 @@
 # -*- encoding: utf-8 -*-
 name = 'swifthlm'
 entry_point = '%s.middleware:filter_factory' % (name)
-version = '0.1'
+version = '0.2.1'
 
 from setuptools import setup, find_packages
 
