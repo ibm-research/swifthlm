@@ -1,0 +1,20 @@
+### High latency media (hlm) configuration on storage node
+[hlm]
+## You can override the default log level here:
+# set log_level = INFO
+#set log_level = DEBUG
+## Backend connector that will be used is defined here
+# Dummy Connector/Backend - used by default if no connector is defined
+#backend_connector_module = swifthlm.dummy_connector
+# IBM Connector
+# Define EITHER connector_module:
+#backend_connector_module = TODO (currently uses _dir and _filename)
+# OR connector_dir and connector_filename:
+#backend_connector_dir = /opt/ibm/swifthlmconnector
+#backend_connector_filename = connector.py
+## Location for temporary swifthlm files
+# Dummy Connector/Backend
+#swifthlm_tmp_dir = /tmp/swifthlm
+# IBM Connector/Backend
+#swifthlm_tmp_dir = /ibm/gpfs/tmp/swifthlm
+
