@@ -156,6 +156,11 @@ Steps:
 - cp content of /home/swift/.ssh/id_rsa.pub from Dispatcher node into
   /home/swift/.ssh/authorized_keys on storage nodes 
 
+4.3 Configure SwiftHLM to use a specific connector/backend, as instructed in
+Section 6. HLM Backend. If SwiftHLM is not configured to use a specific
+connector/backend, a dummy connector/backend provided and installed as part of
+SwiftHLM will be used as the default one.
+
 5. Activate
 ===============================================
 
@@ -185,12 +190,24 @@ interface and a Swift ring definition), plus it needs to additionally support
 processing and responding requests from SwiftHLM middleware for performing
 SwiftHLM functions.
 
-SwiftHLM Handler is the component of SwiftHLM = that invokes backend HLM
-operations via SwiftHLM generick backend interface (GBI). For each backend a
+SwiftHLM Handler is the component of SwiftHLM  that invokes backend HLM
+operations via SwiftHLM generic backend interface (GBI). For each backend a
 Connector needs to be implemented that maps GBI requests to the backend HLM
-operatins. Location of the Connector executable needs to be configured in
-object-server.conf file on the storage nodes. Example of content that needs to
-be added to this file is:
+operations. 
+
+A backend specific connector can be installed as a standard python module, or
+simply stored as a .py file at arbirary location to which the swift user has
+access. Then SwiftHLM should be configured to use that specific
+connector/backend, by appending the content of
+swifthlm/object-server.conf.merge file to /etc/swift/object-server.conf, and
+edditing the corresponding configuration values to match the specific
+connector/backend. 
+
+Example of the content of edited swifthlm/object-server.conf.merge, to use it
+with IBM Spectrum Archive storage backend (assuming the corresponding connector
+is available and installed - DISCLAIMER: availability or not availability of
+such a connector for IBM Spectrum Archive is not stated or implied by this
+configuration example) is:
 
 ### High latency media (hlm) configuration on storage node
 [hlm]
@@ -202,22 +219,16 @@ set log_level = DEBUG
 #backend_connector_module = swifthlm.dummy_connector
 # IBM Connector
 # Define EITHER connector_module:
-#backend_connector_module = TODO (currently uses _dir and _filename)
+backend_connector_module = swifthlmibmsa.ibmsa_swifthlm_connector
 # OR connector_dir and connector_filename:
-backend_connector_dir = /opt/ibm/swifthlmconnector
-backend_connector_filename = connector.py
+#backend_connector_dir = /opt/ibm/ibmsa-swifthlm-connector/swifthlmibmsa
+#backend_connector_filename = ibmsa_swifthlm_connector.py
 ## Location for temporary swifthlm files
 # Dummy Connector/Backend
 #swifthlm_tmp_dir = /tmp/swifthlm
 # IBM Connector/Backend
 swifthlm_tmp_dir = /ibm/gpfs/tmp/swifthlm
 
-
-TODO: support backend connectors installed as python module, w/o removing
-support for backend connectors that are not installed as pyhon module but
-installed to arbitrary directory.
-In that case the backend connector module name will need to be provide in the
-config file instead the dir and filename of the connector .py file.
 
 7. External Interface and Usage Examples 
 ===============================================
