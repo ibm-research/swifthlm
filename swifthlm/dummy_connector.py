@@ -177,13 +177,15 @@ class SwiftHlmBackendConnector(object):
         self.logger.debug('Submitting request to backend')
         # migrate or recall
         if self.__request_out['request'] in {'migrate', 'recall'}:
-            self.__response_in = 0 return
+            self.__response_in = 0 
+            return
         # status
-        objects_files_statuses = [] for object_file in
-        self.__request_out['objects']: object_file_status = {}
-        object_file_status['object'] = object_file['object']
-        object_file_status['file'] = object_file['file']
-        object_file_status['status'] = 'resident'
+        objects_files_statuses = [] 
+        for object_file in self.__request_out['objects']: 
+            object_file_status = {}
+            object_file_status['object'] = object_file['object']
+            object_file_status['file'] = object_file['file']
+            object_file_status['status'] = 'resident'
         objects_files_statuses.append(object_file_status)
         self.__response_in['objects'] = objects_files_statuses
         #self.__response_out = self.__resonse_in

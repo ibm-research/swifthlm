@@ -109,6 +109,8 @@ class Handler(object):
         backend_connector_path = backend_connector_dir + '/' + \
                 backend_connector_filename
         if backend_connector_module:
+            self.logger.debug('backend_connector_module: %s',
+                    backend_connector_module)
             self.backend_connector_mod = \
                 importlib.import_module(backend_connector_module, package=None)
         elif backend_connector_filename:
@@ -119,6 +121,8 @@ class Handler(object):
                 imp.load_source(backend_connector_module,
                 backend_connector_path)
         else:
+            self.logger.debug('Using default backend_connector_module: %s',
+                    'swifthlm.dummy_connector')
             self.backend_connector_mod = swifthlm.dummy_connector
 
     # Receive request from dispatcher
