@@ -186,7 +186,7 @@ class SwiftHlmBackendConnector(object):
             object_file_status['object'] = object_file['object']
             object_file_status['file'] = object_file['file']
             object_file_status['status'] = 'resident'
-        objects_files_statuses.append(object_file_status)
+            objects_files_statuses.append(object_file_status)
         self.__response_in['objects'] = objects_files_statuses
         #self.__response_out = self.__resonse_in
         # self.__response_in = self.__request_out
