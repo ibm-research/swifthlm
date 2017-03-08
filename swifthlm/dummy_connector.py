@@ -168,10 +168,13 @@ class SwiftHlmBackendConnector(object):
     # Backend. Currently the dummy backend is not implemented and object state
     # is not stored, instead response for migrate or recall is always 0
     # (success) and for STATE it is always 'resident' 
-    # TODO: Implement a dummy backend that simply stores migratio/recall state
-    # into a simple database on file SwiftHLM-Dummy-Backend.db stored under
-    # configurable path (e.g.  /tmp for local and /cluster_fs/tmp/ for
-    # clustered file backends
+    # TODO(Slavisa): Implement a somewhat improved dummy backend that simply
+    # stores object state resident/premigrated/migrated, using filepath as the
+    # database entiries key, into a simple database on file
+    # SwiftHLM-Dummy-Backend.db stored under a configurable path (e.g.
+    # /tmp/swifthlm for local and /cluster_fs/tmp/swifthlm for clustered file
+    # backends
+
     def __submit_request_to_backend_get_response(self):
         
         self.logger.debug('Submitting request to backend')
@@ -188,8 +191,7 @@ class SwiftHlmBackendConnector(object):
             object_file_status['status'] = 'resident'
             objects_files_statuses.append(object_file_status)
         self.__response_in['objects'] = objects_files_statuses
-        #self.__response_out = self.__resonse_in
-        # self.__response_in = self.__request_out
+        #self.__response_in = self.__request_out
 
         return
 
@@ -208,7 +210,7 @@ if __name__ == '__main__':
     # SwiftHlmConnector class is not assumed to be used standalone, instead it
     # is imported for a configured backend by SwiftHLM Handler and invoked from
     # the Handler. Alternatively it could be modified to be invoked as a new
-    # process and/or remoteley similar to SwiftHLM Dispatcher invoking SwiftHLM
+    # process and/or remotely similar to SwiftHLM Dispatcher invoking SwiftHLM
     # Handler
     raise 
 
