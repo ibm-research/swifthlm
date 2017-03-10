@@ -35,6 +35,7 @@ from sys import stdin, stdout
 from collections import defaultdict
 #from swift.common import read_config_file
 import ConfigParser
+from ConfigParser import RawConfigParser
 from swift.common.utils import readconf
 from swift.common.utils import json, get_logger, split_path
 import logging
@@ -77,6 +78,14 @@ class Handler(object):
         # Config
         configFile = r'/etc/swift/object-server.conf'
         self.conf = readconf(configFile) 
+        # readconf does not load the [DEFAULT] section, adding that manually
+        rcp = RawConfigParser()
+        cf = open(configFile, 'r')
+        rcp.readfp(cf)
+        full_conf = self.conf.copy()
+        full_conf.update(rcp.defaults())
+        cf.close()
+        self.conf = full_conf
 
         # Logging
         hlm_stor_node_config = self.conf.get('hlm', None)
@@ -178,10 +187,7 @@ class Handler(object):
             self.logger.debug('hash_path or key: %s', key)
             
             # Create/use Object Controller to map objects to files            
-            configFile = r'/etc/swift/object-server.conf'
-            conf = readconf(configFile)
-            #oc = ObjectController(conf)
-            oc = ObjectController(conf, self.logger)
+            oc = ObjectController(self.conf, self.logger)
             self.logger.debug('oc.node_timeout: %s', oc.node_timeout)            
             policy = POLICIES.get_by_index(storage_policy_index)
             self.logger.debug('policy: %s', policy)
