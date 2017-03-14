@@ -140,12 +140,25 @@ from swift.common.utils import (
     whataremyips, Timestamp)
 from swift.common.wsgi import ConfigString
 from eventlet import sleep, Timeout
-#import logging
 import datetime
 
 #
-#from swifthlm import handler
+import time
+from swift.common.direct_client import (ClientException, direct_head_container,
+                                         direct_get_container,
+                                         direct_put_container_object)
+from swift.common.http import HTTP_NOT_FOUND
+from eventlet import Timeout, GreenPool, GreenPile, sleep
+import socket
+from swift.common.utils import (split_path, config_true_value, whataremyips,
+                                get_logger, Timestamp, list_from_csv,
+                                last_modified_date_to_timestamp, quorum_size,
+                                PRECISION)
 
+# SwiftHLM Queues: account and container names
+SWIFTHLM_ACCOUNT = '.swifthlm' 
+SWIFTHLM_PENDING_REQUESTS_CONTAINER = 'pending-hlm-requests'
+SWIFTHLM_FAILED_REQUESTS_CONTAINER = 'failed-hlm-requests'
 
 # The default internal client config body is to support upgrades without
 # requiring deployment of the new /etc/swift/internal-client.conf
@@ -231,7 +244,9 @@ class HlmMiddleware(object):
         self.spi = ''
         # Internal swift client
         self.create_internal_swift_client()
-    
+        # Container ring
+        self.container_ring = Ring(self.swift_dir, ring_name='container')   
+ 
         self.logger.info('info: Initialized SwiftHLM Middleware')
         self.logger.debug('dbg: Initialized SwiftHLM Middleware')
 
@@ -622,13 +637,41 @@ class HlmMiddleware(object):
                 _('Unable to load internal client from config: %r (%s)') %
                 (internal_client_conf_path, err))
 
+    def direct_put_to_swifthlm_account(self, container, obj, headers):
+        """
+        :param container: a container name in SWIFTHLM_ACCOUNT
+        :param obj: a object name
+        :param headers: a dict of headers
+        :returns: the request does succeed or not
+        """
+        def _check_success(*args, **kwargs):
+            try:
+                direct_put_container_object(*args, **kwargs)
+                return 1
+            except (ClientException, Timeout, socket.error):
+                return 0
+
+        pile = GreenPile()
+        part, nodes = self.container_ring.get_nodes(
+            SWIFTHLM_ACCOUNT, container)
+        for node in nodes:
+            pile.spawn(_check_success, node, part,
+                       SWIFTHLM_ACCOUNT, container, obj, headers=headers,
+                       conn_timeout=5, response_timeout=15)
+
+        successes = sum(pile)
+        if successes >= quorum_size(len(nodes)):
+            return True
+        else:
+            return False
+
     def queue_migration_or_recall_request(self, hlm_req, 
             account, container, spi, obj):
         # Debug info
         self.logger.debug('Queue HLM %s request\n', hlm_req)
         self.logger.debug('/acc/con/obj: %s/%s/%s', account, container, obj)
         # Queue request as empty object in special /acccount/container
-        # /AUTH_swifthlm/requests
+        # /SWIFTHLM_ACCOUNT/SWIFTHLM_PENDING_REQUESTS_CONTAINER
         # Name object using next syntax
         # migrate--yyyymmddhhmmss.msc--account--container--spi
         # recall--yyyymmddhhmmss.msc--account--container--spi--object
@@ -637,38 +680,28 @@ class HlmMiddleware(object):
         req_name = "--".join([curtime, hlm_req, account, container, spi])
         if obj:
             req_name += "--" + obj
-        # Create container if not existing
-        # TODO: consider checking/doing this 'one time' only e.g. at install 
-        if not self.swift.container_exists(account='AUTH_swifthlm',
-                container='pending-hlm-requests'):
-            try:
-                self.swift.create_container(account='AUTH_swifthlm',
-                        container='pending-hlm-requests')
-            except Exception, e:  # noqa
-                self.logger.error('Queue request error: %s', str(e))
-                return False
-        # Put object
+        # Queue SwiftHLM task by storing empty object to special container
+        headers = {'X-Size': 0, 
+                    'X-Etag': 'swifthlm_task_etag',
+                    'X-Timestamp': Timestamp(time.time()).internal,
+                    'X-Content-Type': 'application/swifthlm-task'}
         try:
-            self.swift.upload_object(FileLikeIter(body), 
-                account='AUTH_swifthlm', 
-                container='pending-hlm-requests',
-                obj=req_name)
-        except UnexpectedResponse as err:
-            self.logger.error('Queue request error: %s', err)
-            return False
-        except Exception, e:  # noqa
-            self.logger.error('Queue request error: %s', str(e))
+            self.direct_put_to_swifthlm_account(
+                SWIFTHLM_PENDING_REQUESTS_CONTAINER, req_name, headers)
+        except Exception:
+            self.logger.exception(
+                'Unhandled Exception trying to create queue')
             return False
         return True
 
     def pull_a_mig_or_rec_request_from_queue(self):
-        # Pull a request from /AUTH_swifthlm/requests
+        # Pull a request from SWIFTHLM_PENDING_REQUESTS_CONTAINER
         # First list the objects (requests) from the queue
         #headers_out = {'X-Newest': True}
         try: 
             objects = self.swift.iter_objects(
-                    account='AUTH_swifthlm', 
-                    container='pending-hlm-requests')
+                    account=SWIFTHLM_ACCOUNT, 
+                    container=SWIFTHLM_PENDING_REQUESTS_CONTAINER)
                     #headers=headers_out)
         except UnexpectedResponse as err:
             self.logger.error('Pull request error: %s', err)
@@ -691,11 +724,11 @@ class HlmMiddleware(object):
         self.logger.debug('Queue failed request: %s', request)
         # Create container/queue for failed requests, if not existing
         # TODO: consider checking/doing this 'one time' only e.g. at install 
-        if not self.swift.container_exists(account='AUTH_swifthlm',
-                container='failed-hlm-requests'):
+        if not self.swift.container_exists(account=SWIFTHLM_ACCOUNT,
+                container=SWIFTHLM_FAILED_REQUESTS_CONTAINER):
             try:
-                self.swift.create_container(account='AUTH_swifthlm',
-                        container='failed-hlm-requests')
+                self.swift.create_container(account=SWIFTHLM_ACCOUNT,
+                        container=SWIFTHLM_FAILED_REQUESTS_CONTAINER)
             except Exception, e:  # noqa
                 self.logger.error('Queue request error: %s', str(e))
                 return False
@@ -703,8 +736,8 @@ class HlmMiddleware(object):
         body = ''
         try:
             self.swift.upload_object(FileLikeIter(body), 
-                account='AUTH_swifthlm', 
-                container='failed-hlm-requests',
+                account=SWIFTHLM_ACCOUNT, 
+                container=SWIFTHLM_FAILED_REQUESTS_CONTAINER,
                 obj=request)
         except UnexpectedResponse as err:
             self.logger.error('Queue failed request error: %s', err)
@@ -717,8 +750,8 @@ class HlmMiddleware(object):
     def success_remove_related_requests_from_failed_queue(self, request):
         ts, hlm_req, acc, con, spi, obj = \
             self.decode_request(request)
-        failed_requests = self.get_list_of_objects('AUTH_swifthlm',
-            'failed-hlm-requests')
+        failed_requests = self.get_list_of_objects(SWIFTHLM_ACCOUNT,
+            SWIFTHLM_FAILED_REQUESTS_CONTAINER)
         for freq in failed_requests: 
             fts, fhlm_req, facc, fcon, fspi, fobj = \
                 self.decode_request(freq)
@@ -726,7 +759,7 @@ class HlmMiddleware(object):
             # as well as other similar "merging" logic
             if fobj == obj and fcon == con and facc == acc:
                 if not self.delete_request_from_queue(freq,
-                        'failed-hlm-requests'):
+                        SWIFTHLM_FAILED_REQUESTS_CONTAINER):
                    self.logger.warning('Stale failed request %s', freq) 
 
     def delete_request_from_queue(self, request, queue):
@@ -735,7 +768,7 @@ class HlmMiddleware(object):
         # delete request
         try:
             self.swift.delete_object( 
-                account='AUTH_swifthlm', 
+                account=SWIFTHLM_ACCOUNT, 
                 container=queue,
                 obj=request)
         except UnexpectedResponse as err:
@@ -761,12 +794,12 @@ class HlmMiddleware(object):
 
     def get_pending_and_failed_requests(self, acc, con, obj):
         self.logger.debug('Get pending hlm requests')
-        pending_requests = self.get_list_of_objects('AUTH_swifthlm',
-            'pending-hlm-requests')
+        pending_requests = self.get_list_of_objects(SWIFTHLM_ACCOUNT,
+            SWIFTHLM_PENDING_REQUESTS_CONTAINER)
         self.logger.debug('pending: %s', str(pending_requests))
         self.logger.debug('Get failed hlm requests')
-        failed_requests = self.get_list_of_objects('AUTH_swifthlm',
-            'failed-hlm-requests')
+        failed_requests = self.get_list_of_objects(SWIFTHLM_ACCOUNT,
+            SWIFTHLM_FAILED_REQUESTS_CONTAINER)
         self.logger.debug('failed: %s', str(failed_requests))
         self.response_out = []
         for preq in pending_requests: 
