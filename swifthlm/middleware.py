@@ -326,6 +326,36 @@ class HlmMiddleware(object):
                 hlm_req == 'smigrate' or hlm_req == 'srecall')):
             return self.app(env, start_response)
 
+        # Process by this middleware. First check if the container and/or
+        # object exist
+        # TODO: Investigate impact of these checks on GET object performance,
+        # if necessary consider skipping the check or doing it at a later step
+        if not self.swift.container_exists(account, container):
+            return Response(status=HTTP_NOT_FOUND,
+                            body="Account/Container %s/%s "
+                            "does not exist.\n" % (account, container),
+                            content_type="text/plain")(env, start_response)
+        elif obj:
+            obj_exists = False 
+            try:
+                objects_iter = self.swift.iter_objects(account, container)
+            except Exception, e:  # noqa
+                self.logger.error('List container objects error: %s', str(e))
+                return Response(status=HTTP_INTERNAL_SERVER_ERROR,
+                            body="Unable to check whether object %s belongs"
+                            "to /%s/%s\n" % (obj, account, container),
+                            content_type="text/plain")(env, start_response)
+            if objects_iter:
+                for cobj in objects_iter:
+                    if cobj == obj:
+                        obj_exists = True
+                        break
+            if obj_exists == False:
+                return Response(status=HTTP_NOT_FOUND,
+                            body="Object %s/%s/%s "
+                            "does not exist.\n" % (account, container, obj),
+                            content_type="text/plain")(env, start_response)
+
         # Process GET object data request, if object is migrated return error
         # code 412 'Precondition Failed' (consider using 455 'Method Not Valid
         # in This State') - the error code is returned if any object replica is
