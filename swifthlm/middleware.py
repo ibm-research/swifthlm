@@ -347,7 +347,7 @@ class HlmMiddleware(object):
                             content_type="text/plain")(env, start_response)
             if objects_iter:
                 for cobj in objects_iter:
-                    if cobj == obj:
+                    if cobj['name'] == obj:
                         obj_exists = True
                         break
             if obj_exists == False:
