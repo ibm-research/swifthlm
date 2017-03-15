@@ -231,8 +231,6 @@ class HlmMiddleware(object):
          
         # Request
         self.req = ''
-        # SwiftHLM request
-        self.hlm_req = ''
         # Per storage node request list
         self.per_node_request = defaultdict(list)
         # Responses received from storage nodes
@@ -240,8 +238,6 @@ class HlmMiddleware(object):
         # Locks
         self.stdin_lock = threading.Lock()
         self.stout_lock = threading.Lock()
-        # Container storage policy index holder
-        self.spi = ''
         # Internal swift client
         self.create_internal_swift_client()
         # Container ring
@@ -314,11 +310,9 @@ class HlmMiddleware(object):
         # If request is not HLM request or not a GET, it is not processed
         # by this middleware
         method = req.method
-        if namespace == 'hlm':
-            self.hlm_req = hlm_req
-        else:
+        if not (namespace == 'hlm'):
             hlm_req = None
-            self.hlm_req = None
+
         if not (method == 'GET' and 
                 (obj or hlm_req == 'status' or hlm_req == 'requests')
                 or method == 'POST' and 
@@ -366,7 +360,6 @@ class HlmMiddleware(object):
                 and hlm_req != 'status' and hlm_req != 'requests':
             # check status and either let GET proceed or return error code
             hlm_req = 'status'
-            self.hlm_req = 'status'
 
             # Distribute request to storage nodes get responses
             self.distribute_request_to_storage_nodes_get_responses(hlm_req,
@@ -374,7 +367,7 @@ class HlmMiddleware(object):
 
             # Merge responses from storage nodes
             # i.e. merge self.response_in into self.response_out
-            self.merge_responses_from_storage_nodes()
+            self.merge_responses_from_storage_nodes(hlm_req)
             
             # Resident or premigrated state is condition to pass request,
             # else return error code
@@ -429,7 +422,6 @@ class HlmMiddleware(object):
                 (hlm_req == 'smigrate' or hlm_req == 'srecall'):
             if (hlm_req == 'smigrate' or hlm_req == 'srecall'):
                 hlm_req = hlm_req[1:]
-                self.hlm_req = hlm_req
             
             # Distribute request to storage nodes get responses
             self.distribute_request_to_storage_nodes_get_responses(hlm_req,
@@ -437,7 +429,7 @@ class HlmMiddleware(object):
 
             # Merge responses from storage nodes
             # i.e. merge self.response_in into self.response_out
-            self.merge_responses_from_storage_nodes()
+            self.merge_responses_from_storage_nodes(hlm_req)
 
             # Report result
             #jout = json.dumps(out) + str(len(json.dumps(out)))
@@ -470,7 +462,7 @@ class HlmMiddleware(object):
         return objects
 
     def create_per_storage_node_objects_list_and_request(self, hlm_req,
-            account, container, obj):
+            account, container, obj, spi):
         # Create per node list of object(s) replicas
         # Syntax: per_node_list={'node1':[obj1,obj3], 'node2':[obj3,obj4]}
         # First get list of objects
@@ -487,13 +479,13 @@ class HlmMiddleware(object):
                     str(objects)[0:1023])
         # Add each object to its nodes' lists
         per_node_list = defaultdict(list)
-        # Set container storage policy (if not past to and set by Dispatcher)
-        if not self.spi:
-            self.spi = self.get_storage_policy_index(account, container)
+        # Set container storage policy (if not passed to and set by Dispatcher)
+        if not spi:
+            spi = self.get_storage_policy_index(account, container)
         for obj in objects:
             obj_path = '/' + account + '/' + container + '/' + obj
             ips, devices, storage_policy_index, swift_dir \
-                = self.get_obj_storage_nodes(account, container, obj, self.spi)
+                = self.get_obj_storage_nodes(account, container, obj, spi)
             i = 0    
             for ip_addr in ips:
                 obj_path_and_dev = {}
@@ -589,12 +581,12 @@ class HlmMiddleware(object):
         return
 
     def distribute_request_to_storage_nodes_get_responses(self, hlm_req,
-            account, container, obj):
+            account, container, obj, spi=None):
         # Create per storage node list of object(s) replicas
         # Syntax: per_node_list={'node1':[obj1,obj3], 'node2':[obj3,obj4]}
         # ... and the request for submitting to Handler
         self.create_per_storage_node_objects_list_and_request(hlm_req, 
-                account, container, obj) 
+                 account, container, obj, spi)
         
         self.logger.debug('After'
                 ' self.create_per_storage_node_objects_list_and_request()')
@@ -613,8 +605,8 @@ class HlmMiddleware(object):
             th.join()
         return
 
-    def merge_responses_from_storage_nodes(self):
-        if self.hlm_req == 'status':
+    def merge_responses_from_storage_nodes(self, hlm_req):
+        if hlm_req == 'status':
             # STATUS
             self.response_out = {}
             for ip_addr in self.response_in:
@@ -635,14 +627,14 @@ class HlmMiddleware(object):
                 if self.response_in[ip_addr] != self.response_out:
                     self.response_out = "1"
             if self.response_out == "0":
-                self.response_out = "SwiftHLM " + self.hlm_req + \
+                self.response_out = "SwiftHLM " + hlm_req + \
                         " request completed successfully."
             elif self.response_out == "1":
-                self.response_out = "SwitHLM " + self.hlm_req + \
+                self.response_out = "SwiftHLM " + hlm_req + \
                         " request failed."
             else:
                 self.response_out = "Unable to invoke SwiftHLM " + \
-                        self.hlm_req + " request."
+                        hlm_req + " request."
 
     # Create internal swift client self.swift
     def create_internal_swift_client(self):

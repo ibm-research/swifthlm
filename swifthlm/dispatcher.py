@@ -91,12 +91,7 @@ class SwiftHlmDispatcher(object):
                 "[%(filename)s:%(funcName)20s():%(lineno)s] %(message)s")
 
         # Import SwiftHLM middleware function that can be reused by Dispatcher
-        swifthlm_mw__module = 'middleware'
-        #swifthlm_mw_path = '/opt/swifthlm/swifthlm/middleware.py'
-        #self.swifthlm_mw_mod = imp.load_source(swifthlm_mw__module,
-        #                        swifthlm_mw_path)
-        self.swifthlm_mw_mod = middleware
-        self.swifthlm_mw = self.swifthlm_mw_mod.HlmMiddleware('proxy-server', self.conf)
+        self.swifthlm_mw = middleware.HlmMiddleware('proxy-server', self.conf)
         # and (!) initialize internal swift client (not done at init in mw)
         #self.swifthlm_mw.create_internal_swift_client()
 
@@ -108,33 +103,28 @@ class SwiftHlmDispatcher(object):
     # merges the responses, if success remove from queue else queue as failed
     # and remove from queue.
     def process_next_request(self):
+        mw = self.swifthlm_mw
         # Pull request
-        request = self.swifthlm_mw.pull_a_mig_or_rec_request_from_queue()
+        request = mw.pull_a_mig_or_rec_request_from_queue()
         if request:
             # Found a request to process
             self.logger.info('Processing request %s', request)
             if len(sys.argv) >= 2:
                 print 'Processing request ' + request
             timestamp, hlm_req, account, container, spi, obj = \
-                self.swifthlm_mw.decode_request(request)
+                mw.decode_request(request)
             self.logger.debug('ts:%s, hlmreq:%s, ac:%s, c:%s, spi:%s, o:%s',
                     timestamp, hlm_req, account, container, spi, obj ) 
-            # Communicate container storage policy
-            self.swifthlm_mw.spi = spi
             # TODO: next is n.a. from Dispatcher until the function is improved
-            #   self.spi = self.swifthlm_mw.get_storage_policy_index(account,
+            #   self.spi = mw.get_storage_policy_index(account,
             #        container)
-
             # Distribute request to storage nodes get responses
-            mw = self.swifthlm_mw
-            mw.hlm_req = hlm_req
             mw.distribute_request_to_storage_nodes_get_responses(
-                hlm_req, account, container, obj)
+                hlm_req, account, container, obj, spi)
             # Merge responses from storage nodes
-            self.swifthlm_mw.merge_responses_from_storage_nodes()
+            mw.merge_responses_from_storage_nodes(hlm_req)
 
             # Queue failed request to failed-hlm-requests container/queue
-            mw = self.swifthlm_mw
             if not 'successful' in mw.response_out:
                 if mw.queue_failed_migration_or_recall_request(request):
                     self.logger.debug('Queued failed request: %s', request)
@@ -145,11 +135,9 @@ class SwiftHlmDispatcher(object):
             # If a request is resubmitted upon a failure(s) and succeeds,
             # clean up the related failed requests
             if 'successful' in mw.response_out:
-                mw = self.swifthlm_mw
                 mw.success_remove_related_requests_from_failed_queue(request)
 
             # Delete the processed request from the pending-hlm-requests queue
-            mw = self.swifthlm_mw
             if mw.delete_request_from_queue(request, 'pending-hlm-requests'):
                 self.logger.debug('Deleted request from queue: %s', request)
             else:
@@ -161,17 +149,17 @@ class SwiftHlmDispatcher(object):
     # ... unless it is invoked with sys.argv[1] == 1 (testing mode)
     def run(self, *args, **kwargs):
         if len(sys.argv) == 2 and str(sys.argv[1]) == "1":
-            self.logger.debug('Pooling the requests queue')
-            print 'Pooling the requests queue'
+            self.logger.debug('Polling the requests queue')
+            print 'Polling the requests queue'
             self.process_next_request()
             return
         else:
             while True:
                 if len(sys.argv) >= 2:
-                    print 'Pooling the requests queue'
-                self.logger.debug('Pooling the requests queue')
+                    print 'Polling the requests queue'
+                self.logger.debug('Polling the requests queue')
                 self.process_next_request()
-                sleep(5) #TODO: make pooling frequency adaptive to load
+                sleep(5) #TODO: make polling frequency adaptive to load
 
 if __name__ == '__main__':
     dispatcher = SwiftHlmDispatcher()
