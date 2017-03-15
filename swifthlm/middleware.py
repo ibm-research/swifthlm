@@ -325,30 +325,39 @@ class HlmMiddleware(object):
         # TODO: Investigate impact of these checks on GET object performance,
         # if necessary consider skipping the check or doing it at a later step
         if not self.swift.container_exists(account, container):
-            return Response(status=HTTP_NOT_FOUND,
-                            body="Account/Container %s/%s "
-                            "does not exist.\n" % (account, container),
-                            content_type="text/plain")(env, start_response)
+                rbody = "/account/container /%s/%s does not exist." % (account,
+                        container)
+                rbody_json = {'error': rbody}
+                rbody_json_str = json.dumps(rbody_json)
+                return Response(status=HTTP_NOT_FOUND,
+                            body=rbody_json_str,
+                            content_type="application/json")(env, start_response)
         elif obj:
             obj_exists = False 
             try:
                 objects_iter = self.swift.iter_objects(account, container)
             except Exception, e:  # noqa
                 self.logger.error('List container objects error: %s', str(e))
+                rbody = "Unable to check does object %s belong to /%s/%s." % \
+                        (obj, account, container)
+                rbody_json = {'error': rbody}
+                rbody_json_str = json.dumps(rbody_json)
                 return Response(status=HTTP_INTERNAL_SERVER_ERROR,
-                            body="Unable to check whether object %s belongs"
-                            "to /%s/%s\n" % (obj, account, container),
-                            content_type="text/plain")(env, start_response)
+                            body=rbody_json_str,
+                            content_type="application/json")(env, start_response)
             if objects_iter:
                 for cobj in objects_iter:
                     if cobj['name'] == obj:
                         obj_exists = True
                         break
             if obj_exists == False:
+                rbody = "Object /%s/%s/%s does not exist." % (account,
+                        container, obj)
+                rbody_json = {'error': rbody}
+                rbody_json_str = json.dumps(rbody_json)
                 return Response(status=HTTP_NOT_FOUND,
-                            body="Object %s/%s/%s "
-                            "does not exist.\n" % (account, container, obj),
-                            content_type="text/plain")(env, start_response)
+                            body=rbody_json_str,
+                            content_type="application/json")(env, start_response)
 
         # Process GET object data request, if object is migrated return error
         # code 412 'Precondition Failed' (consider using 455 'Method Not Valid
