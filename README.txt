@@ -125,6 +125,8 @@ the implementation file for each component.
       # High latency media (hlm) middleware
       [filter:hlm]
       use = egg:swifthlm#swifthlm
+      set log_level = INFO
+      #set log_level = DEBUG
 
   b) If Swift installed as part of Spectrum Scale 4.2.1 and later:
 
@@ -136,36 +138,52 @@ the implementation file for each component.
     Example output for the previous command:
     pipeline = healthcheck cache formpost tempurl swift3 s3token authtoken keystoneauth container-quotas account-quotas staticweb bulk slo dlo proxy-server
 
-    Create a file called
-    /tmp/proxy-server.conf.merge
-    and fill it with the following contents, re-using the pipeline= line from the
-    previous command output with hlm added before proxy-server:
+    Edit content of swifthlm/config/proxy-server.conf.merge to match the
+    previous pipeline configuration and add 'hlm' before 'proxy-server'. E.g.
+    for the above listed previous pipeline configuration, after editing the
+    line that configures the pipeline should look like:
+
     [pipeline:main]
     pipeline =  healthcheck cache formpost tempurl swift3 s3token authtoken keystoneauth container-quotas account-quotas staticweb bulk slo dlo hlm proxy-server
 
-      [filter:hlm]
-      use = egg:swifthlm#swifthlm
+    To write back the configuration and register the swifthlm middleware, run:
+    # mmobj config change --ccrfile proxy-server.conf --merge-file /tmp/proxy-server.conf.merge
 
-      To write back the configuration and register the swifthlm middleware, run:
-      # mmobj config change --ccrfile proxy-server.conf --merge-file /tmp/proxy-server.conf.merge
+4.2 Configure swift user passwordless ssh from SwiftHLM Dispatcher node to
+    Swift storage nodes, steps 4.2.1 - 4.2.2. Swift user is not a privileged
+    user and cannot execute privileged operations. 
 
-4.2 Configure swift user passwordless ssh between the Swift nodes. Swift user
-is not a privileged user and cannot execute privileged operations.
+4.2.1 Make sure swift user is allowed ssh login. 
+    
+    E.g. if the entry in /etc/passwd for swift user is:
+    swift:x:160:160:OpenStack Swift Daemons:/var/lib/swift:/sbin/nologin
+    ... modify it to:
+    swift:x:160:160:OpenStack Swift Daemons:/var/lib/swift:/bin/bash
 
-Steps:
-- use ssh-keygen to generate RSA keys on Dispatcher node
-- cp content of /home/swift/.ssh/id_rsa.pub from Dispatcher node into
-  /home/swift/.ssh/authorized_keys on storage nodes 
+    (Note: a possible future improvement is to move SwiftHLM Handler function
+    from the remotely invokable pythyon module into a remotely accesible service
+    running on a proxy node, and thus avoid need to allow swift user ssh login.)
 
-4.3 Configure SwiftHLM to use a specific connector/backend, as instructed in
-Section 6. HLM Backend. If SwiftHLM is not configured to use a specific
-connector/backend, a dummy connector/backend provided and installed as part of
-SwiftHLM will be used as the default one.
+4.2.2 Setup key-based ssh for swift user:
+    - Use ssh-keygen to generate RSA keys on Dispatcher node
+    - cp content of /home/swift/.ssh/id_rsa.pub from Dispatcher node into
+      /home/swift/.ssh/authorized_keys on storage nodes
+
+4.3 Register SwiftHLM Dispatcher with systemd:
+
+    cp swifthlm/config/swifthlm.dispatcher.service /etc/systemd/system/swifthlm.dispatcher.service
+
+4.4 Configure SwiftHLM to use a specific connector/backend:
+
+    More information about integrating and configuring HLM backends is provided
+    in Section 6. HLM Backend. If SwiftHLM is not configured to use a specific
+    connector/backend, a dummy connector/backend provided and installed as part
+    of SwiftHLM will be used as the default one.
 
 5. Activate
 ===============================================
 
-To activate the middleware, restart Swift services:
+To activate SwiftHLM middleware, restart Swift services:
 
   a) Swift installed from source:
     # swift-init main reload
@@ -173,14 +191,19 @@ To activate the middleware, restart Swift services:
   b) Spectrum Scale 4.1.1 or later:
     # mmces service start OBJ --all
 
-Note: Before SwiftHLM can be used (Section 7), an HLM Backend needs to be
-installed and configured (Section 6).
-
 To start SwiftHLM Dispatcher service (one one node, e.g. a proxy node):
-    # python -m swifthlm.dispatcher &
-    # to stop it:
-    # kill $(pgrep -f 'python -m swifthlm.dispatcher')
-    # TODO: look for a better way run the dispatcher background process
+    Start:
+      # systemctl start swifthlm.dispatcher
+    Check status:
+      systemctl status swifthlm.dispatcher -l
+    If/when needed, dispatcher can be stopped using:
+      # systemctl stop swifthlm.dispatcher
+
+To use SwiftHLM, see instruction in Section 7.
+
+Note: If SwiftHLM is not configured to use a specific connector/backend
+(Section 6), a dummy connector/backend provided and installed as part of
+SwiftHLM will be used as the default one. 
 
 6. HLM Backend
 ===============================================

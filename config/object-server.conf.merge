@@ -18,7 +18,7 @@
 # IBM Connector/Backend
 #swifthlm_tmp_dir = /ibm/gpfs/tmp/swifthlm
 
-# DISCLAIMER: availability or not availability such a connector for IBM
-# Spectrum Archive is not stated or implied by this configuration example
-
+# DISCLAIMER: availability or not availability the connectors used in the
+# above examples, such as e.g. connector for IBM Spectrum Archive, is not 
+# stated or implied by the given configuration examples
 

@@ -1,0 +1,7 @@
+[pipeline:main]
+pipeline =  healthcheck cache formpost tempurl swift3 s3token authtoken keystoneauth container-quotas account-quotas staticweb bulk slo dlo hlm proxy-server
+
+[filter:hlm]
+use = egg:swifthlm#swifthlm
+set log_level = INFO
+#set log_level = DEBUG
