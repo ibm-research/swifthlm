@@ -238,25 +238,24 @@ configuration example) is:
 ## You can override the default log level here:
 # set log_level = INFO
 set log_level = DEBUG
-## Backend connector that will be used is defined here
-# Dummy Connector/Backend - used by default if no connector is defined
-#backend_connector_module = swifthlm.dummy_connector
-# IBM Connector
-# Define EITHER connector_module:
-backend_connector_module = swifthlmibmsa.ibmsa_swifthlm_connector
-# OR connector_dir and connector_filename:
-#backend_connector_dir = /opt/ibm/ibmsa-swifthlm-connector/swifthlmibmsa
-#backend_connector_filename = ibmsa_swifthlm_connector.py
-## Location for temporary swifthlm files
-# Dummy Connector/Backend
-#swifthlm_tmp_dir = /tmp/swifthlm
+## SwiftHLM Connector (and consequently the Backend) is declared here:
+#
+# Dummy Connector/Backend - used by default if no other connector is defined
+#swifthlm_connector_module = swifthlm.dummy_connector
+#
 # IBM Connector/Backend
-swifthlm_tmp_dir = /ibm/gpfs/tmp/swifthlm
+swifthlm_connector_module = swifthlmibmsa.ibmsa_swifthlm_connector
+#
+# Your own Connector/Backend
+# Define EITHER connector_module (if installed as a python module), e.g.:
+#swifthlm_connector_module = swifthlmibmsa.ibmsa_swifthlm_connector
+# OR connector_dir and connector_filename (if installed that way), e.g.:
+#swifthlm_connector_dir = /opt/ibm/swifthlmconnector
+#swifthlm_connector_filename = connector.py
 
 
 7. External Interface and Usage Examples 
 ===============================================
-
 
 * Syntax for using SwiftHLM enabled Swift via a standard (unmodified) curl Swift client:
 

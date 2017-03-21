@@ -106,33 +106,33 @@ class Handler(object):
         # /etc/swift/object-server.conf
         # If nothing is configured a dummy backend connector, that is provided
         # and installed with SwiftHLM is used by default
-        backend_connector_module = hlm_stor_node_config.get(
-                'backend_connector_module',
+        swifthlm_connector_module = hlm_stor_node_config.get(
+                'swifthlm_connector_module',
                 '')
-        backend_connector_dir = hlm_stor_node_config.get(
-                'backend_connector_dir',
+        swifthlm_connector_dir = hlm_stor_node_config.get(
+                'swifthlm_connector_dir',
                 '')
-        backend_connector_filename = hlm_stor_node_config.get(
-                'backend_connector_filename',
+        swifthlm_connector_filename = hlm_stor_node_config.get(
+                'swifthlm_connector_filename',
                 '') 
-        backend_connector_path = backend_connector_dir + '/' + \
-                backend_connector_filename
-        if backend_connector_module:
-            self.logger.debug('backend_connector_module: %s',
-                    backend_connector_module)
-            self.backend_connector_mod = \
-                importlib.import_module(backend_connector_module, package=None)
-        elif backend_connector_filename:
-            backend_connector_module = backend_connector_filename[:-3]
-            self.logger.debug('backend_connector_path: %s',
-                    backend_connector_path)
-            self.backend_connector_mod = \
-                imp.load_source(backend_connector_module,
-                backend_connector_path)
+        swifthlm_connector_path = swifthlm_connector_dir + '/' + \
+                swifthlm_connector_filename
+        if swifthlm_connector_module:
+            self.logger.debug('swifthlm_connector_module: %s',
+                    swifthlm_connector_module)
+            self.swifthlm_connector_mod = \
+                importlib.import_module(swifthlm_connector_module, package=None)
+        elif swifthlm_connector_filename:
+            swifthlm_connector_module = swifthlm_connector_filename[:-3]
+            self.logger.debug('swifthlm_connector_path: %s',
+                    swifthlm_connector_path)
+            self.swifthlm_connector_mod = \
+                imp.load_source(swifthlm_connector_module,
+                swifthlm_connector_path)
         else:
-            self.logger.debug('Using default backend_connector_module: %s',
+            self.logger.debug('Using default swifthlm_connector_module: %s',
                     'swifthlm.dummy_connector')
-            self.backend_connector_mod = swifthlm.dummy_connector
+            self.swifthlm_connector_mod = swifthlm.dummy_connector
 
     # Receive request from dispatcher
     def receive_request(self):
@@ -227,7 +227,7 @@ class Handler(object):
         
         self.logger.debug('Submitting request to backend')
         #self.response_out = self.request_in
-        connector = self.backend_connector_mod.SwiftHlmBackendConnector()
+        connector = self.swifthlm_connector_mod.SwiftHlmBackendConnector()
         self.response_in = \
             connector.submit_request_get_response(self.request_out)
         self.response_out = self.response_in
