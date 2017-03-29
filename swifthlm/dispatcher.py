@@ -95,6 +95,9 @@ class SwiftHlmDispatcher(object):
         # and (!) initialize internal swift client (not done at init in mw)
         #self.swifthlm_mw.create_internal_swift_client()
 
+        # Memory of previous queue pulling result, used to adapt pulling period
+        self.found_empty_queue = False
+
         self.logger.info('info: Initialized Dispatcher')
         self.logger.debug('dbg: Initialized Dispatcher')
 
@@ -106,8 +109,11 @@ class SwiftHlmDispatcher(object):
         mw = self.swifthlm_mw
         # Pull request
         request = mw.pull_a_mig_or_rec_request_from_queue()
-        if request:
+        if not request:
+            self.found_empty_queue = True
+        else:
             # Found a request to process
+            self.found_empty_queue = False
             self.logger.info('Processing request %s', request)
             if len(sys.argv) >= 2:
                 print 'Processing request ' + request
@@ -159,7 +165,8 @@ class SwiftHlmDispatcher(object):
                     print 'Polling the requests queue'
                 self.logger.debug('Polling the requests queue')
                 self.process_next_request()
-                sleep(5) #TODO: make polling frequency adaptive to load
+                if self.found_empty_queue:
+                    sleep(5) #TODO: make polling frequency more adaptive
 
 if __name__ == '__main__':
     dispatcher = SwiftHlmDispatcher()
