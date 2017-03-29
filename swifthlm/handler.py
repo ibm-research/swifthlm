@@ -102,6 +102,15 @@ class Handler(object):
         self.logger.debug('dbg: Initialized Handler')
         #self.logger.info('conf: %s', self.conf)
 
+        # Generic backend interface (GBI) configuration options
+        self.gbi_provide_dirpaths_instead_of_filepaths = False
+        conf_gbi_provide_dirpaths_instead_of_filepaths = \
+                hlm_stor_node_config.get(\
+                    'gbi_provide_dirpaths_instead_of_filepaths',
+                    'False')
+        if conf_gbi_provide_dirpaths_instead_of_filepaths == 'True':
+            self.gbi_provide_dirpaths_instead_of_filepaths = True
+
         # Backend connector (directory and .py filename) can be configured in 
         # /etc/swift/object-server.conf
         # If nothing is configured a dummy backend connector, that is provided
@@ -200,13 +209,17 @@ class Handler(object):
                 "storage policy: %s", device, obj_and_dev['object'], policy)
             data_dir = oc.disk_file._datadir
             self.logger.debug('data_dir: %s', data_dir)
-            files = os.listdir(oc.disk_file._datadir)
-            file_info = oc.disk_file._get_ondisk_file(files)
-            oc._data_file = file_info.get('data_file')
-            self.logger.debug('data_file: %s', oc._data_file)
+            if not self.gbi_provide_dirpaths_instead_of_filepaths:
+                files = os.listdir(oc.disk_file._datadir)
+                file_info = oc.disk_file._get_ondisk_file(files)
+                oc._data_file = file_info.get('data_file')
+                self.logger.debug('data_file: %s', oc._data_file)
             # Add file path to the request
             self.logger.debug('obj_and_dev: %s', obj_and_dev)
-            obj_and_file['file'] = oc._data_file
+            if not self.gbi_provide_dirpaths_instead_of_filepaths:
+                obj_and_file['file'] = oc._data_file
+            else:
+                obj_and_file['file'] = data_dir 
             self.logger.debug('obj_and_file: %s', obj_and_file)
             objects_and_files.append(obj_and_file)
             

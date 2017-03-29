@@ -8,6 +8,12 @@
 # Dummy Connector/Backend - used by default if no other connector is defined
 #swifthlm_connector_module = swifthlm.dummy_connector
 #
+# Generic Backend Interface (GBI) options
+#The next option defaul value is False, set it to True only if your backend
+#connector is able to (more efficiently) map object data directory paths to
+#file paths
+#gbi_provide_dirpaths_instead_of_filepaths = False  
+#
 # IBM Connector/Backend
 #swifthlm_connector_module = swifthlmibmsa.ibmsa_swifthlm_connector
 #
