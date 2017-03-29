@@ -505,7 +505,7 @@ class HlmMiddleware(object):
                 per_node_list[ip_addr].append(obj_path_and_dev)
 
         # Create json-formatted requests
-        #per_node_request = defaultdict(list)
+        self.per_node_request = defaultdict(list)
         for ip_addr in per_node_list:
             request = {}
             request['request'] = hlm_req
