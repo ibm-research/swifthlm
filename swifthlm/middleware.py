@@ -602,6 +602,7 @@ class HlmMiddleware(object):
 
         # For each storage node/list dispatch request to the storage node
         # and get response
+        self.response_in = defaultdict(list)
         threads = []
         for ip_addr in self.per_node_request:
             #logs inside loop outside of threads nok...
