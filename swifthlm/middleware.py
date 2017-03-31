@@ -152,8 +152,7 @@ from eventlet import Timeout, GreenPool, GreenPile, sleep
 import socket
 from swift.common.utils import (split_path, config_true_value, whataremyips,
                                 get_logger, Timestamp, list_from_csv,
-                                last_modified_date_to_timestamp, quorum_size,
-                                PRECISION)
+                                last_modified_date_to_timestamp, quorum_size)
 
 # SwiftHLM Queues: account and container names
 SWIFTHLM_ACCOUNT = '.swifthlm' 
