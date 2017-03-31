@@ -199,7 +199,7 @@ class Handler(object):
             oc = ObjectController(self.conf, self.logger)
             self.logger.debug('oc.node_timeout: %s', oc.node_timeout)            
             policy = POLICIES.get_by_index(storage_policy_index)
-            self.logger.debug('policy: %s', policy)
+            self.logger.debug('policy: %s index: %s', policy, str(int(policy)))
             try:
                 oc.disk_file = oc.get_diskfile(
                     device, partition, account, container, obj,
@@ -209,11 +209,27 @@ class Handler(object):
                 "storage policy: %s", device, obj_and_dev['object'], policy)
             data_dir = oc.disk_file._datadir
             self.logger.debug('data_dir: %s', data_dir)
-            if not self.gbi_provide_dirpaths_instead_of_filepaths:
-                files = os.listdir(oc.disk_file._datadir)
-                file_info = oc.disk_file._get_ondisk_file(files)
-                oc._data_file = file_info.get('data_file')
-                self.logger.debug('data_file: %s', oc._data_file)
+            # Swift-on-File detection
+            # Get the device path from the object server config file
+            devpath = self.conf.get('devices', None)
+            # The Swift-on-File device directory is a symlink
+            # in the devpath directory constructed like shown below
+            sofpath = devpath + '/' + obj_and_dev['device']
+            if str.find(data_dir, sofpath) == 0 and os.path.islink(sofpath):
+                # data_dir starts with sofpath and sofpath is a symlink -> SoF
+                self.logger.debug('SOF detected, sofpath: %s, realpath: %s',
+                                  sofpath, os.path.realpath(sofpath))
+                # Follow the symlink and append a/c/o to get the data file path
+                oc._data_file = os.path.realpath(sofpath) + \
+                                obj_and_file['object']
+                data_dir = os.path.realpath(sofpath) + '/' + account +\
+                           '/' + container
+            else:
+                if not self.gbi_provide_dirpaths_instead_of_filepaths:
+                    files = os.listdir(oc.disk_file._datadir)
+                    file_info = oc.disk_file._get_ondisk_file(files)
+                    oc._data_file = file_info.get('data_file')
+                    self.logger.debug('data_file: %s', oc._data_file)
             # Add file path to the request
             self.logger.debug('obj_and_dev: %s', obj_and_dev)
             if not self.gbi_provide_dirpaths_instead_of_filepaths:
