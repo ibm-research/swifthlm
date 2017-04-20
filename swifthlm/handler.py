@@ -65,6 +65,8 @@ from swift.common.utils import hash_path
 import swifthlm.dummy_connector
 import importlib
 
+INVOKE_HANDLER_ON_PROXY = True
+
 # SwiftHLM Handler maps objects to files and submits requests to Storage
 # Backend via Backend Connector
 class Handler(object):
@@ -250,6 +252,44 @@ class Handler(object):
         pass
 
         return
+
+
+    def pass_objects_as_targets(self):
+
+        self.logger.debug('Pass objects as targets')
+        self.logger.debug('request_in(first 1024 bytes): %s',
+                str(self.request_in)[0:1023])
+    
+        request_in_dict = json.loads(self.request_in)
+        #TODO consider modifying incoming request in place
+        self.request_out = {}
+        self.request_out['request'] = request_in_dict['request']
+        objects_and_files = []
+        for obj_and_dev in request_in_dict['objects']:
+            obj_and_file = {}
+            obj_and_file['object'] = obj_and_dev['object'] 
+            self.logger.debug('obj: %s', obj_and_dev)        
+            try:
+                (account, container, obj) = split_path(obj_and_dev['object'],
+                        3, 3, False)
+            except ValueError:
+                self.logger.debug('split_path exception')        
+                raise
+            obj_and_file['file'] = 'n.a.'
+            self.logger.debug('obj_and_file: %s', obj_and_file)
+            objects_and_files.append(obj_and_file)
+            
+        self.logger.debug('objects_and_files(first 1024 bytes): %s',
+               str(objects_and_files[0:1023]))
+        self.request_out['objects'] = objects_and_files
+
+        self.logger.debug('request_in(first 1024 bytes): %s',
+                str(self.request_in)[0:1023]) 
+        self.logger.debug('request_out(first 1024 bytes): %s',
+                str(self.request_out)[0:1023]) 
+
+        return
+
     # Submit request to Backend via Backend Connector
     # and get Response from Backend
     def submit_request_get_response(self):
@@ -278,7 +318,10 @@ class Handler(object):
 if __name__ == '__main__':
     handler = Handler()
     handler.receive_request()
-    handler.map_objects_to_targets()
+    if INVOKE_HANDLER_ON_PROXY:
+    	handler.pass_objects_as_targets()
+    else:
+        handler.map_objects_to_targets()
     handler.submit_request_get_response()
     handler.return_response()
 

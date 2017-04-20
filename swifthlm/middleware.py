@@ -206,6 +206,7 @@ use = egg:swift#catch_errors
 # See proxy-server.conf-sample for options
 """.lstrip()
 
+INVOKE_HANDLER_ON_PROXY = True
 
 class HlmMiddleware(object):
 
@@ -501,7 +502,13 @@ class HlmMiddleware(object):
                 obj_path_and_dev['device'] = devices[i]
                 i += 1
                 #per_node_list[ip_addr].append(obj_path)
-                per_node_list[ip_addr].append(obj_path_and_dev)
+                if INVOKE_HANDLER_ON_PROXY:
+                	self.logger.debug('Set to invoke handler on proxy node')
+                	this_proxy_ip_addr = gethostbyname(gethostname())
+                	per_node_list[this_proxy_ip_addr].append(obj_path_and_dev)
+                	break
+                else:
+                    per_node_list[ip_addr].append(obj_path_and_dev)
 
         # Create json-formatted requests
         self.per_node_request = defaultdict(list)
