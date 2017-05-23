@@ -17,7 +17,7 @@ SwiftHLM (Swift Hight-Latency Media) middleware
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-### Version: 0.2.1
+### Version: 0.2.2
 
 ### Authors:
 Slavisa Sarafijanovic (sla@zurich.ibm.com)
@@ -62,7 +62,7 @@ and for various reasons as discussed in [5]. In [5] it is also explained how
 SwiftHLM function can be orthogonal and complementary to Swift (ring to ring)
 tiering [6].
 
-SwiftHLM version 0.2.1 provides the following basic HLM functions on the external
+SwiftHLM version 0.2.2 provides the following basic HLM functions on the external
 Swift interface:
 
 - MIGRATE (container or an object from disk to HLM)
