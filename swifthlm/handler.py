@@ -71,9 +71,8 @@ class Handler(object):
 
     def __init__(self):
         self.request_in = ''
-        self.request_out = ''
-        self.response_in = ''
-        self.response_out = ''
+        self.request_out = {}
+        self.response_out = {}
 
         # Config
         configFile = r'/etc/swift/object-server.conf'
@@ -215,7 +214,7 @@ class Handler(object):
             # The Swift-on-File device directory is a symlink
             # in the devpath directory constructed like shown below
             sofpath = devpath + '/' + obj_and_dev['device']
-            if str.find(data_dir, sofpath) == 0 and os.path.islink(sofpath):
+            if data_dir.find(sofpath) == 0 and os.path.islink(sofpath):
                 # data_dir starts with sofpath and sofpath is a symlink -> SoF
                 self.logger.debug('SOF detected, sofpath: %s, realpath: %s',
                                   sofpath, os.path.realpath(sofpath))
@@ -227,7 +226,12 @@ class Handler(object):
             else:
                 if not self.gbi_provide_dirpaths_instead_of_filepaths:
                     files = os.listdir(oc.disk_file._datadir)
-                    file_info = oc.disk_file._get_ondisk_file(files)
+                    file_info = {}
+                    # DiskFile method got renamed between Liberty and Mitaka
+                    try:
+                        file_info = oc.disk_file._get_ondisk_file(files)
+                    except AttributeError:
+                        file_info = oc.disk_file._get_ondisk_files(files)
                     oc._data_file = file_info.get('data_file')
                     self.logger.debug('data_file: %s', oc._data_file)
             # Add file path to the request
@@ -257,9 +261,8 @@ class Handler(object):
         self.logger.debug('Submitting request to backend')
         #self.response_out = self.request_in
         connector = self.swifthlm_connector_mod.SwiftHlmBackendConnector()
-        self.response_in = \
+        self.response_out = \
             connector.submit_request_get_response(self.request_out)
-        self.response_out = self.response_in
         return
 
 
@@ -281,4 +284,3 @@ if __name__ == '__main__':
     handler.map_objects_to_targets()
     handler.submit_request_get_response()
     handler.return_response()
-

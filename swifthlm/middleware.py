@@ -290,7 +290,11 @@ class HlmMiddleware(object):
                 cmd_ifhlm, acc_ifhlm, con_ifhlm, obj_ifhlm) 
 
         if namespace == 'hlm':
-            hlm_req = str.lower(cmd_ifhlm)
+            try:
+                hlm_req = cmd_ifhlm.lower()
+            except AttributeError:
+                self.logger.debug('unexpected hlm_req attribute')
+                return self.app(env, start_response)
             account = acc_ifhlm
             container = con_ifhlm
             obj = obj_ifhlm
@@ -584,6 +588,7 @@ class HlmMiddleware(object):
         # Close the pipe
         stdout.close()
         stderr.close()
+        ssh_client.close()
 
         self.response_in[ip_addr] = response
         return
@@ -708,7 +713,7 @@ class HlmMiddleware(object):
         # recall--yyyymmddhhmmss.msc--account--container--spi--object
         curtime = datetime.datetime.now().strftime("%Y%m%d%H%M%S.%f")[:-3]
         body = ''
-        req_name = "--".join([curtime, hlm_req, account, container, spi])
+        req_name = "--".join([curtime, hlm_req, account, container, str(spi)])
         if obj:
             req_name += "--" + obj
         # Queue SwiftHLM task by storing empty object to special container
