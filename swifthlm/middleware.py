@@ -102,7 +102,7 @@ REQUESTS query request is an HTTP GET request, with the following syntax:
     GET http://<host>:<port>/hlm/v1/REQUESTS/<account>/<container>
 """
 
-import errno
+from errno import ENOENT
 import subprocess
 import random
 import string
@@ -668,7 +668,7 @@ class HlmMiddleware(object):
             self.swift = InternalClient(
                 internal_client_conf, 'SwiftHLM Middleware', request_tries)
         except IOError as err:
-            if err.errno != errno.ENOENT:
+            if err.errno != ENOENT:
                 raise
             raise SystemExit(
                 _('Unable to load internal client from config: %r (%s)') %
