@@ -526,70 +526,48 @@ class HlmMiddleware(object):
         ssh_client.load_system_host_keys()
         ssh_client.connect(ip_addr, username="swift")
         # Prepare remote Handler execution ssh pipe
-#        handler = '/opt/swifthlm/handler/handler.py'
-#        stdin, stdout, stderr = ssh_client.exec_command(\
-#                'sudo ' + handler)
-#        handler = '/opt/swifthlm/handler/handler.py'
         stdin, stdout, stderr = ssh_client.exec_command(\
                 'python -m ' + 'swifthlm.handler')
         ich = stdin.channel
         och = stdout.channel
         ech = stderr.channel
-        # Send request
-        #long_list = range(1,100000)
-        #for i in range(1,100):  
-        #    stdin.write(json.dumps(long_list))       
-        #stdin.write('a'*10000000)
-        #stdin.write(json.dumps(per_node_list[ip_addr]))
-        stdin.write(json.dumps(self.per_node_request[ip_addr]))
+        ich.sendall(json.dumps(self.per_node_request[ip_addr]))
         stdin.flush()
         ich.shutdown_write()
         stdin.close()
-        long_list = ''
-        # Get response by reading pipe, a buffer size at a time
-        self.logger.debug('Getting response from %s', str(ip_addr))
+
         response = ''
         errors = ''
         self.stdin_lock.release()
-        # Read from pipe until both remote command completed
-        # (or channel closed) AND no more data in buffers to read 
-        self.stout_lock.acquire()
-        while not och.closed \
-                or och.recv_ready() \
-                or och.recv_stderr_ready(): 
-            new_data_or_error = False
-            # Listen to pipe until new data or timeout
-            timeout = 1200
-            readable, _, _ = select.select([och], [], [ech], timeout)
-            for ch in readable:
-                if ch.recv_ready(): 
-                    # Read normal response
-                    #response.append(och.recv(len(ch.in_buffer)))
-                    response += och.recv(len(ch.in_buffer))
-                    #self.stout_lock.acquire() #nok
-                    new_data_or_error = True
-                if ch.recv_stderr_ready(): 
-                    # Read/log error response  
-                    #ech.recv_stderr(len(ch.in_stderr_buffer))  
-                    errors += ech.recv_stderr(len(ch.in_stderr_buffer)) 
-                    self.logger.error('Errors reported by Handler:'+
-                            ' %s', errors) 
-                    new_data_or_error = True  
-            if not new_data_or_error \
-                and och.exit_status_ready() \
-                and not ech.recv_stderr_ready() \
-                and not och.recv_ready(): 
-                # Close channel
-                och.shutdown_read()  
-                och.close()
-                break  
-        self.stout_lock.release()
-      
-        # Close the pipe
-        stdout.close()
-        stderr.close()
-        ssh_client.close()
 
+        self.stout_lock.acquire()
+
+        # Set initial max amount of data to receive, after first receive we
+        # adapt to the receive buffer size
+        max_receive_bytes = 100
+        # Ensure that reads are blocking (non-busy wait)
+        och.setblocking(1)
+        while True:
+            chunk = och.recv(max_receive_bytes)
+            self.logger.debug("Bytes received: <%d>", len(chunk))
+            if (len(chunk) == 0) and och.eof_received:
+                # Stop receiving as channel stream has closed.
+                # Inspired by Paramiko channel.py source comments.
+                # Other methods to determine command completion are
+                # unreliable.
+                break
+            # Adjust max retrieve size to receive buffer length.
+            # Note that it is assumed that data is delivered constantly once
+            # available ie. max_receive_bytes is non-zero after first data
+            # receiption.
+            max_receive_bytes = len(och.in_buffer)
+            response += chunk
+
+        self.logger.debug("Response (first+last 512 bytes): <%s ... %s>" %
+                          (response[0:512], response[-512:]))
+        self.stout_lock.release()
+        # Closing the client will close the transport and channels
+        ssh_client.close()
         self.response_in[ip_addr] = response
         return
 
