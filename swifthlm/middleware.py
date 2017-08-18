@@ -605,7 +605,10 @@ class HlmMiddleware(object):
             for ip_addr in self.response_in:
                 self.logger.debug('response_in[ip_addr](first 1024 bytes): %s',
                         str(self.response_in[ip_addr])[0:1023])
-                resp_in = (json.loads(self.response_in[ip_addr]))['objects']
+                try:
+                    resp_in = (json.loads(self.response_in[ip_addr]))['objects']
+                except ValueError as err:
+                    self.logger.error('Could not decode JSON response: %s', err)
                 for dct in resp_in:
                     self.logger.debug('dct: %s', str(dct))
                     obj = dct['object']
