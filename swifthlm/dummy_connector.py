@@ -31,21 +31,21 @@ developmental and not stable)
 
 request =
   {
-  command : status, 
-  objects : 
+  command : status,
+  objects :
     [
       { object : /a/c/obj1, file : /srv/node/filepath1 },
       { object : /a/c/obj2, file : /srv/node/filepath2 }
     ]
   }
 
-response = 
+response =
   {
-  objects : 
+  objects :
     [
       {object : /a/c/obj1, file : /srv/node/filepath1, status : migrated,},
       {object : /a/c/obj2, file : /srv/node/filepath2, status : resident},
-      {object : /a/c/obj3, file : /srv/node/filepath3, status : premigrated}, 
+      {object : /a/c/obj3, file : /srv/node/filepath3, status : premigrated},
       {object : /a/c/obj4, file : /srv/node/filepath4, status : unknown}
     ]
   }
@@ -62,19 +62,18 @@ response is integer:
 Internal methods of SwiftHlmBackendConnector are backend specific, and
 typically involve reformatting the list of object and files to be migrated,
 submitting the list and the operation to backend, and receiving response from
-backend. Typically it is the backend that moves data between LLM (low latency media)
-and HLM (hight latency media) and changes or reports replica state. For other
-types of HLM backend the data move and state management function may be
-implemented in the SwiftHLM Backend Connector of that backend.  
+backend. Typically it is the backend that moves data between LLM (low latency
+media) and HLM (hight latency media) and changes or reports replica state. For
+other types of HLM backend the data move and state management function may be
+implemented in the SwiftHLM Backend Connector of that backend.
 
 Authors:
 Slavisa Sarafijanovic (sla@zurich.ibm.com)
 
 """
 
-from sys import stdin, stdout 
+from sys import stdin, stdout
 from collections import defaultdict
-#from swift.common import read_config_file
 import ConfigParser
 from swift.common.utils import readconf
 from swift.common.utils import json, get_logger, split_path
@@ -94,10 +93,10 @@ from swift.common.swob import HTTPAccepted, HTTPBadRequest, HTTPCreated, \
     HTTPConflict, HTTPServerError
 import os
 
-#scor aux
+# scor aux
 from swift.proxy.controllers.base import get_container_info
 
-#scor aux
+# scor aux
 from swift.common.utils import hash_path
 
 
@@ -112,22 +111,24 @@ class SwiftHlmBackendConnector(object):
 
         # Config
         configFile = r'/etc/swift/object-server.conf'
-        self.conf = readconf(configFile) 
+        self.conf = readconf(configFile)
 
         # Logging
         hlm_stor_node_config = self.conf.get('hlm', None)
         if hlm_stor_node_config:
             hlm_stor_node_log_level = hlm_stor_node_config.get('set log_level',
-                    None)
+                                                               None)
         if hlm_stor_node_log_level:
             self.conf['log_level'] = hlm_stor_node_log_level
         self.logger = get_logger(self.conf, name='hlm-connector',
-                log_route='swifthlm', fmt="%(server)s: %(msecs)03d "
-                "[%(filename)s:%(funcName)20s():%(lineno)s] %(message)s")
+                                 log_route='swifthlm',
+                                 fmt="%(server)s: %(msecs)03d "
+                                 "[%(filename)s:%(funcName)20s():%(lineno)s] "
+                                 "%(message)s")
 
         self.logger.info('info: Initialized Connector')
         self.logger.debug('dbg: Initialized Connector')
-        #self.logger.info('conf: %s', self.conf)
+        # self.logger.info('conf: %s', self.conf)
 
     # Next method is to be invoked by SwiftHLM Handler using SwiftHLM Generic
     # Backend Interface (GBI) declared above in this file. It adapts SwiftHLM
@@ -138,73 +139,60 @@ class SwiftHlmBackendConnector(object):
         self.__receive_request(request)
         self.__reformat_swifthlm_request_to_specific_backend_api()
         self.__submit_request_to_backend_get_response()
-        self.__reformat_backend_response_to_generic_backend_api() 
+        self.__reformat_backend_response_to_generic_backend_api()
         return self.__response_out
 
-    # This exemplary private method receives the request from SwiftHLM Handler 
+    # This exemplary private method receives the request from SwiftHLM Handler
     def __receive_request(self, request):
-        
         self.logger.debug('Receiving request from Handler')
         self.__request_in = request
 
-        return
-       
     # This exemplary private method reformats request to backend API
     # Some backends expect as input a file that lists the object data files to
     # be migrated or recalled. For this dummy backend connector it just copies
     # the incoming request
     def __reformat_swifthlm_request_to_specific_backend_api(self):
-
         self.logger.debug('Reformatting request to the specific Backend API')
         self.logger.debug('request_in: %s', self.__request_in)
-    
+
         # Backend specific part, for the assumed dummy backend just copies the
         # incoming request
         self.__request_out = self.__request_in
 
-        return
-
     # This exemplary method submits request to Backend and gets Response from
     # Backend. Currently the dummy backend is not implemented and object state
     # is not stored, instead response for migrate or recall is always 0
-    # (success) and for STATE it is always 'resident' 
+    # (success) and for STATE it is always 'resident'
     # TODO(Slavisa): Implement a somewhat improved dummy backend that simply
     # stores object state resident/premigrated/migrated, using filepath as the
     # database entiries key, into a simple database on file
     # SwiftHLM-Dummy-Backend.db stored under a configurable path (e.g.
     # /tmp/swifthlm for local and /cluster_fs/tmp/swifthlm for clustered file
     # backends
-
     def __submit_request_to_backend_get_response(self):
-        
         self.logger.debug('Submitting request to backend')
         # migrate or recall
         if self.__request_out['request'] in {'migrate', 'recall'}:
-            self.__response_in = 0 
+            self.__response_in = 0
             return
         # status
-        objects_files_statuses = [] 
-        for object_file in self.__request_out['objects']: 
+        objects_files_statuses = []
+        for object_file in self.__request_out['objects']:
             object_file_status = {}
             object_file_status['object'] = object_file['object']
             object_file_status['file'] = object_file['file']
             object_file_status['status'] = 'resident'
             objects_files_statuses.append(object_file_status)
         self.__response_in['objects'] = objects_files_statuses
-        #self.__response_in = self.__request_out
-
-        return
+        # self.__response_in = self.__request_out
 
     def __reformat_backend_response_to_generic_backend_api(self):
-
         self.logger.debug('Reformatting response to Generic Backend API')
         self.logger.debug('response_in: %s', self.__response_in)
-    
-        # Backend specific part, for the assumed dummy backend it just copies the
-        # incoming response from the backend
-        self.__response_out = self.__response_in
 
-        return
+        # Backend specific part, for the assumed dummy backend it just copies
+        # the incoming response from the backend
+        self.__response_out = self.__response_in
 
 if __name__ == '__main__':
     # SwiftHlmConnector class is not assumed to be used standalone, instead it
@@ -212,5 +200,4 @@ if __name__ == '__main__':
     # the Handler. Alternatively it could be modified to be invoked as a new
     # process and/or remotely similar to SwiftHLM Dispatcher invoking SwiftHLM
     # Handler
-    raise 
-
+    raise

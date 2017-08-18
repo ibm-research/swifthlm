@@ -15,125 +15,123 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""
-Authors:
-Slavisa Sarafijanovic (sla@zurich.ibm.com)
-Harald Seipp (seipp@de.ibm.com)
-"""
+# Authors:
+# Slavisa Sarafijanovic (sla@zurich.ibm.com)
+# Harald Seipp (seipp@de.ibm.com)
 
-"""
-SwiftHLM is useful for running OpenStack Swift on top of high latency media
-(HLM) storage, such as tape or optical disk archive based backends, allowing to
-store cheaply and access efficiently large amounts of infrequently used object
-data.
+# SwiftHLM is useful for running OpenStack Swift on top of high latency media
+# (HLM) storage, such as tape or optical disk archive based backends, allowing
+# to store cheaply and access efficiently large amounts of infrequently used
+# object data.
+#
+# This file implements SwiftHLM Middleware component of SwiftHLM, which is the
+# middleware added to Swift's proxy server.
+#
+# SwiftHLM middleware extends Swift's interface and thus allows to explicitly
+# control and query the state (on disk or on HLM) of Swift object data,
+# including efficient prefetch of bulk of objects from HLM to disk when those
+# objects need to be accessed.
+#
+# SwiftHLM provides the following basic HLM functions on the external Swift
+# interface:
+# - MIGRATE (container or an object from disk to HLM)
+# - RECALL (i.e. prefetch a container or an object from HLM to disk)
+# - STATUS (get status for a container or an object)
+# - REQUESTS (get status of migration and recall requests previously submitted
+#   for a contaner or an object).
+#
+# MIGRATE and RECALL are asynchronous operations, meaning that the request from
+# user is queued and user's call is responded immediately, then the request is
+# processed as a background task. Requests are currently processed in a FIFO
+# manner (scheduling optimizations are future work).
+# REQUESTS and STATUS are synchronous operations that block the user's call
+# until the queried information is collected and returned.
+#
+# For each of these functions, SwiftHLM Middleware invokes additional SwiftHLM
+# components to perform the task, which includes calls to HLM storage backend.
+#
+# -------
+# MIGRATE
+# -------
+#
+# Trigger a migration from disk to HLM of a single object or all objects within
+# a container.
+# MIGRATE request is an HTTP POST request, with the following syntax:
+#
+#     POST http://<host>:<port>/hlm/v1/MIGRATE/<account>/<container>/<object>
+#     POST http://<host>:<port>/hlm/v1/MIGRATE/<account>/<container>
+#
+#     Note: SwiftHLM request keywords are case-insensitive, MIGRATE or migrate
+#     can be used, RECALL or recall, STATUS or status, REQUESTS or requests.
+#
+# ------
+# RECALL
+# ------
+#
+# Trigger a recall from HLM to disk for a single object or all objects within a
+# container.
+# RECALL request is an HTTP POST request, with the following syntax:
+#
+#     POST http://<host>:<port>/hlm/v1/RECALL/<account>/<container>/<object>
+#     POST http://<host>:<port>/hlm/v1/RECALL/<account>/<container>
+#
+# ------
+# STATUS
+# ------
+#
+# Return, as the response body, a JSON encoded dictionary of objects and their
+# status (on HLM or on disk) for a given object or all objects within a
+# container.
+# STATUS query request is an HTTP GET request, with the following syntax:
+#
+#     GET http://<host>:<port>/hlm/v1/STATUS/<account>/<container>/<object>
+#     GET http://<host>:<port>/hlm/v1/STATUS/<account>/<container>
+#
+# ------
+# REQUESTS
+# ------
+#
+# Return, as the response body, a JSON encoded list of pending or failed
+# migration and recall requests submitted for a contaner or an object.
+# REQUESTS query request is an HTTP GET request, with the following syntax:
+#
+#     GET http://<host>:<port>/hlm/v1/REQUESTS/<account>/<container>/<object>
+#     GET http://<host>:<port>/hlm/v1/REQUESTS/<account>/<container>
 
-This file implements SwiftHLM Middleware component of SwiftHLM, which is the
-middleware added to Swift's proxy server. 
-
-SwiftHLM middleware extends Swift's interface and thus allows to explicitly
-control and query the state (on disk or on HLM) of Swift object data, including
-efficient prefetch of bulk of objects from HLM to disk when those objects need
-to be accessed.
-
-SwiftHLM provides the following basic HLM functions on the external Swift
-interface:
-- MIGRATE (container or an object from disk to HLM)
-- RECALL (i.e. prefetch a container or an object from HLM to disk)
-- STATUS (get status for a container or an object)
-- REQUESTS (get status of migration and recall requests previously submitted
-  for a contaner or an object).
-
-MIGRATE and RECALL are asynchronous operations, meaning that the request from
-user is queued and user's call is responded immediately, then the request is
-processed as a background task. Requests are currently processed in a FIFO
-manner (scheduling optimizations are future work). 
-REQUESTS and STATUS are synchronous operations that block the user's call until
-the queried information is collected and returned. 
-
-For each of these functions, SwiftHLM Middleware invokes additional SwiftHLM
-components to perform the task, which includes calls to HLM storage backend. 
-
--------
-MIGRATE
--------
-
-Trigger a migration from disk to HLM of a single object or all objects within a
-container.
-MIGRATE request is an HTTP POST request, with the following syntax:
-
-    POST http://<host>:<port>/hlm/v1/MIGRATE/<account>/<container>/<object>
-    POST http://<host>:<port>/hlm/v1/MIGRATE/<account>/<container>
-
-    Note: SwiftHLM request keywords are case-insensitive, MIGRATE or migrate can
-    be used, RECALL or recall, STATUS or status, REQUESTS or requests.
-
-------
-RECALL
-------
-
-Trigger a recall from HLM to disk for a single object or all objects within a
-container.
-RECALL request is an HTTP POST request, with the following syntax:
-
-    POST http://<host>:<port>/hlm/v1/RECALL/<account>/<container>/<object>
-    POST http://<host>:<port>/hlm/v1/RECALL/<account>/<container>
-
-------
-STATUS
-------
-
-Return, as the response body, a JSON encoded dictionary of objects and their
-status (on HLM or on disk) for a given object or all objects within a
-container.
-STATUS query request is an HTTP GET request, with the following syntax:
-
-    GET http://<host>:<port>/hlm/v1/STATUS/<account>/<container>/<object>
-    GET http://<host>:<port>/hlm/v1/STATUS/<account>/<container>
-
-------
-REQUESTS
-------
-
-Return, as the response body, a JSON encoded list of pending or failed
-migration and recall requests submitted for a contaner or an object.
-REQUESTS query request is an HTTP GET request, with the following syntax:
-
-    GET http://<host>:<port>/hlm/v1/REQUESTS/<account>/<container>/<object>
-    GET http://<host>:<port>/hlm/v1/REQUESTS/<account>/<container>
-"""
-
-from errno import ENOENT
 import subprocess
 import random
 import string
+import select
+import requests
+import netifaces
+import threading
+import time
+import datetime
+import socket
+
 from collections import defaultdict
 from paramiko import SSHClient, AutoAddPolicy
-import select
+from errno import ENOENT
 
 from swift.common.swob import Request, Response
 from swift.common.http import (HTTP_OK, HTTP_INTERNAL_SERVER_ERROR,
                                HTTP_ACCEPTED, HTTP_PRECONDITION_FAILED)
 from swift.common.utils import register_swift_info
 
-#
 from swift.common.ring import Ring
 from swift.common.utils import json, get_logger, split_path
 from swift.common.swob import Request, Response
 from swift.common.swob import HTTPBadRequest, HTTPMethodNotAllowed
 from swift.common.storage_policy import POLICIES
 from swift.proxy.controllers.base import get_container_info
-#
-import requests
+
 from socket import gethostname, gethostbyname
 import ConfigParser
 from collections import OrderedDict
 from ast import literal_eval
-import netifaces
-#
-import threading
-#
-from swift.common.internal_client import (
-    delete_object, put_object, InternalClient, UnexpectedResponse)
+
+from swift.common.internal_client import (delete_object, put_object,
+                                          InternalClient, UnexpectedResponse)
 from swift.common.exceptions import ClientException
 from swift.common.utils import (
     audit_location_generator, clean_content_type, config_true_value,
@@ -141,22 +139,18 @@ from swift.common.utils import (
     whataremyips, Timestamp)
 from swift.common.wsgi import ConfigString
 from eventlet import sleep, Timeout
-import datetime
 
-#
-import time
 from swift.common.direct_client import (ClientException, direct_head_container,
-                                         direct_get_container,
-                                         direct_put_container_object)
+                                        direct_get_container,
+                                        direct_put_container_object)
 from swift.common.http import HTTP_NOT_FOUND
 from eventlet import Timeout, GreenPool, GreenPile, sleep
-import socket
 from swift.common.utils import (split_path, config_true_value, whataremyips,
                                 get_logger, Timestamp, list_from_csv,
                                 last_modified_date_to_timestamp, quorum_size)
 
 # SwiftHLM Queues: account and container names
-SWIFTHLM_ACCOUNT = '.swifthlm' 
+SWIFTHLM_ACCOUNT = '.swifthlm'
 SWIFTHLM_PENDING_REQUESTS_CONTAINER = 'pending-hlm-requests'
 SWIFTHLM_FAILED_REQUESTS_CONTAINER = 'failed-hlm-requests'
 
@@ -211,7 +205,6 @@ use = egg:swift#catch_errors
 class HlmMiddleware(object):
 
     def __init__(self, app, conf):
-
         # App is the final application
         self.app = app
 
@@ -221,14 +214,16 @@ class HlmMiddleware(object):
         # This host ip address
         self.ip = gethostbyname(gethostname())
 
-        # Swift directory 
+        # Swift directory
         self.swift_dir = conf.get('swift_dir', '/etc/swift')
 
         # Logging
         self.logger = get_logger(conf, name='hlm-middleware',
-                log_route='swifthlm', fmt="%(server)s: %(msecs)03d "
-                "[%(filename)s:%(funcName)20s():%(lineno)s] %(message)s")
-         
+                                 log_route='swifthlm',
+                                 fmt="%(server)s: %(msecs)03d "
+                                 "[%(filename)s:%(funcName)20s():%(lineno)s] "
+                                 "%(message)s")
+
         # Request
         self.req = ''
         # Per storage node request list
@@ -241,8 +236,8 @@ class HlmMiddleware(object):
         # Internal swift client
         self.create_internal_swift_client()
         # Container ring
-        self.container_ring = Ring(self.swift_dir, ring_name='container')   
- 
+        self.container_ring = Ring(self.swift_dir, ring_name='container')
+
         self.logger.info('info: Initialized SwiftHLM Middleware')
         self.logger.debug('dbg: Initialized SwiftHLM Middleware')
 
@@ -274,10 +269,11 @@ class HlmMiddleware(object):
     def __call__(self, env, start_response):
         self.logger.debug('env: %s', str(env))
         self.logger.debug('env[PATH_INFO]: %s', str(env['PATH_INFO']))
-        #self.logger.debug('env[RAW_PATH_INFO]: %s', str(env['RAW_PATH_INFO']))
+        # self.logger.debug('env[RAW_PATH_INFO]: %s',
+        #                   str(env['RAW_PATH_INFO']))
         req = Request(env)
         self.req = req
-        #if not self.swift:
+        # if not self.swift:
         #    self.create_internal_swift_client()
 
         # Split request path to determine version, account, container, object
@@ -288,7 +284,7 @@ class HlmMiddleware(object):
             self.logger.debug('split_path exception')
             return self.app(env, start_response)
         self.logger.debug(':%s:%s:%s:%s:%s:%s:', namespace, ver_ifhlm,
-                cmd_ifhlm, acc_ifhlm, con_ifhlm, obj_ifhlm) 
+                          cmd_ifhlm, acc_ifhlm, con_ifhlm, obj_ifhlm)
 
         if namespace == 'hlm':
             try:
@@ -306,7 +302,7 @@ class HlmMiddleware(object):
                 self.logger.debug('split_path exception')
                 return self.app(env, start_response)
             self.logger.debug(':%s:%s:%s:%s:', version, account, container,
-                    obj)
+                              obj)
 
         # More debug info
         self.logger.debug('req.headers: %s', str(self.req.headers))
@@ -317,11 +313,11 @@ class HlmMiddleware(object):
         if not (namespace == 'hlm'):
             hlm_req = None
 
-        if not (method == 'GET' and 
-                (obj or hlm_req == 'status' or hlm_req == 'requests')
-                or method == 'POST' and 
-                (hlm_req == 'migrate' or hlm_req == 'recall' or \
-                hlm_req == 'smigrate' or hlm_req == 'srecall')):
+        if not (method == 'GET' and
+                (obj or hlm_req == 'status' or hlm_req == 'requests') or
+                method == 'POST' and
+                (hlm_req == 'migrate' or hlm_req == 'recall' or
+                 hlm_req == 'smigrate' or hlm_req == 'srecall')):
             return self.app(env, start_response)
 
         # Process by this middleware. First check if the container and/or
@@ -329,15 +325,17 @@ class HlmMiddleware(object):
         # TODO: Investigate impact of these checks on GET object performance,
         # if necessary consider skipping the check or doing it at a later step
         if not self.swift.container_exists(account, container):
-                rbody = "/account/container /%s/%s does not exist." % (account,
-                        container)
+                rbody = "/account/container /%s/%s does not exist." % \
+                        (account,
+                         container)
                 rbody_json = {'error': rbody}
                 rbody_json_str = json.dumps(rbody_json)
                 return Response(status=HTTP_NOT_FOUND,
-                            body=rbody_json_str,
-                            content_type="application/json")(env, start_response)
+                                body=rbody_json_str,
+                                content_type="application/json")(
+                                    env, start_response)
         elif obj:
-            obj_exists = False 
+            obj_exists = False
             try:
                 objects_iter = self.swift.iter_objects(account, container)
             except Exception, e:  # noqa
@@ -347,21 +345,25 @@ class HlmMiddleware(object):
                 rbody_json = {'error': rbody}
                 rbody_json_str = json.dumps(rbody_json)
                 return Response(status=HTTP_INTERNAL_SERVER_ERROR,
-                            body=rbody_json_str,
-                            content_type="application/json")(env, start_response)
+                                body=rbody_json_str,
+                                content_type="application/json")(
+                                    env,
+                                    start_response)
             if objects_iter:
                 for cobj in objects_iter:
                     if cobj['name'] == obj:
                         obj_exists = True
                         break
-            if obj_exists == False:
+            if not obj_exists:
                 rbody = "Object /%s/%s/%s does not exist." % (account,
-                        container, obj)
+                                                              container, obj)
                 rbody_json = {'error': rbody}
                 rbody_json_str = json.dumps(rbody_json)
                 return Response(status=HTTP_NOT_FOUND,
-                            body=rbody_json_str,
-                            content_type="application/json")(env, start_response)
+                                body=rbody_json_str,
+                                content_type="application/json")(
+                                    env,
+                                    start_response)
 
         # Process GET object data request, if object is migrated return error
         # code 412 'Precondition Failed' (consider using 455 'Method Not Valid
@@ -376,17 +378,19 @@ class HlmMiddleware(object):
 
             # Distribute request to storage nodes get responses
             self.distribute_request_to_storage_nodes_get_responses(hlm_req,
-                    account, container, obj)
+                                                                   account,
+                                                                   container,
+                                                                   obj)
 
             # Merge responses from storage nodes
             # i.e. merge self.response_in into self.response_out
             self.merge_responses_from_storage_nodes(hlm_req)
-            
+
             # Resident or premigrated state is condition to pass request,
             # else return error code
             self.logger.debug('self.response_out: %s', str(self.response_out))
             obj = "/" + "/".join([account, container, obj])
-            status = self.response_out[obj] 
+            status = self.response_out[obj]
             if status not in ['resident', 'premigrated']:
                 return Response(status=HTTP_PRECONDITION_FAILED,
                                 body="Object %s needs to be RECALL-ed before "
@@ -411,42 +415,44 @@ class HlmMiddleware(object):
         # Async hlm migration or recall request
         elif method == 'POST' and \
                 (hlm_req == 'migrate'or hlm_req == 'recall'):
-            #if not self.swift:
-            #    self.create_internal_swift_client()       
+            # if not self.swift:
+            #    self.create_internal_swift_client()
             self.logger.debug(':%s:%s:%s:%s:', account, container, obj,
-                    hlm_req)
+                              hlm_req)
             # Pass to Dispatcher also storage policy index spi, because
             # self.app is not available in Dispatcher
             # TODO w/o self.app, using Ring.get_nodes(acc,cont)
             spi = self.get_storage_policy_index(account, container)
             self.logger.debug('spi: %s', str(spi))
             self.queue_migration_or_recall_request(hlm_req, account, container,
-                    spi, obj)
+                                                   spi, obj)
             self.logger.debug('Queued %s request.', hlm_req)
 
-            return Response(status=HTTP_OK, 
-                    body='Accepted %s request.\n' % hlm_req,
-                    content_type="text/plain")(env, start_response) 
+            return Response(status=HTTP_OK,
+                            body='Accepted %s request.\n' % hlm_req,
+                            content_type="text/plain")(env, start_response)
 
-#scur
+        # scur
         # Synchronous SwiftHLM status/mig/rec request
         elif (method == 'GET' and hlm_req == 'status') \
                 or method == 'POST' and \
                 (hlm_req == 'smigrate' or hlm_req == 'srecall'):
             if (hlm_req == 'smigrate' or hlm_req == 'srecall'):
                 hlm_req = hlm_req[1:]
-            
+
             # Distribute request to storage nodes get responses
             self.distribute_request_to_storage_nodes_get_responses(hlm_req,
-                    account, container, obj)
+                                                                   account,
+                                                                   container,
+                                                                   obj)
 
             # Merge responses from storage nodes
             # i.e. merge self.response_in into self.response_out
             self.merge_responses_from_storage_nodes(hlm_req)
 
             # Report result
-            #jout = json.dumps(out) + str(len(json.dumps(out)))
-            jout = json.dumps(self.response_out)# testing w/ response_in
+            # jout = json.dumps(out) + str(len(json.dumps(out)))
+            jout = json.dumps(self.response_out)  # testing w/ response_in
             return Response(status=HTTP_OK,
                             body=jout,
                             content_type="text/plain")(env, start_response)
@@ -454,12 +460,12 @@ class HlmMiddleware(object):
         return self.app(env, start_response)
 
     def get_list_of_objects(self, account, container):
-        #if not self.swift:
-            #self.create_internal_swift_client()
-        try: 
+        # if not self.swift:
+        #     self.create_internal_swift_client()
+        try:
             objects_iter = self.swift.iter_objects(account, container)
-            #objects_iter = self.swift.iter_objects(
-            #        account=account, 
+            # objects_iter = self.swift.iter_objects(
+            #        account=account,
             #        container=container)
         except UnexpectedResponse as err:
             self.logger.error('List container objects error: %s', err)
@@ -475,7 +481,8 @@ class HlmMiddleware(object):
         return objects
 
     def create_per_storage_node_objects_list_and_request(self, hlm_req,
-            account, container, obj, spi):
+                                                         account, container,
+                                                         obj, spi):
         # Create per node list of object(s) replicas
         # Syntax: per_node_list={'node1':[obj1,obj3], 'node2':[obj3,obj4]}
         # First get list of objects
@@ -483,13 +490,13 @@ class HlmMiddleware(object):
         if obj:
             self.logger.debug('Object request')
             objects.append(str(obj))
-        else:  
+        else:
             self.logger.debug('Container request')
             # Get list of objects
             objects = self.get_list_of_objects(account, container)
             if objects:
                 self.logger.debug('objects(first 1024 bytes): %s',
-                    str(objects)[0:1023])
+                                  str(objects)[0:1023])
         # Add each object to its nodes' lists
         per_node_list = defaultdict(list)
         # Set container storage policy (if not passed to and set by Dispatcher)
@@ -499,13 +506,13 @@ class HlmMiddleware(object):
             obj_path = '/' + account + '/' + container + '/' + obj
             ips, devices, storage_policy_index, swift_dir \
                 = self.get_obj_storage_nodes(account, container, obj, spi)
-            i = 0    
+            i = 0
             for ip_addr in ips:
                 obj_path_and_dev = {}
                 obj_path_and_dev['object'] = obj_path
                 obj_path_and_dev['device'] = devices[i]
                 i += 1
-                #per_node_list[ip_addr].append(obj_path)
+                # per_node_list[ip_addr].append(obj_path)
                 per_node_list[ip_addr].append(obj_path_and_dev)
 
         # Create json-formatted requests
@@ -517,8 +524,7 @@ class HlmMiddleware(object):
             request['storage_policy_index'] = storage_policy_index
             request['swift_dir'] = swift_dir
             self.per_node_request[ip_addr] = request
-        return
-    
+
     def submit_request_to_storage_node_and_get_response(self, ip_addr):
         self.stdin_lock.acquire()
         self.logger.debug('Dispatching request to %s', str(ip_addr))
@@ -527,7 +533,7 @@ class HlmMiddleware(object):
         ssh_client.load_system_host_keys()
         ssh_client.connect(ip_addr, username="swift")
         # Prepare remote Handler execution ssh pipe
-        stdin, stdout, stderr = ssh_client.exec_command(\
+        stdin, stdout, stderr = ssh_client.exec_command(
                 'python -m ' + 'swifthlm.handler')
         ich = stdin.channel
         och = stdout.channel
@@ -573,30 +579,34 @@ class HlmMiddleware(object):
         return
 
     def distribute_request_to_storage_nodes_get_responses(self, hlm_req,
-            account, container, obj, spi=None):
+                                                          account,
+                                                          container,
+                                                          obj, spi=None):
         # Create per storage node list of object(s) replicas
         # Syntax: per_node_list={'node1':[obj1,obj3], 'node2':[obj3,obj4]}
         # ... and the request for submitting to Handler
-        self.create_per_storage_node_objects_list_and_request(hlm_req, 
-                 account, container, obj, spi)
-        
-        self.logger.debug('After'
-                ' self.create_per_storage_node_objects_list_and_request()')
+        self.create_per_storage_node_objects_list_and_request(hlm_req,
+                                                              account,
+                                                              container,
+                                                              obj, spi)
+
+        self.logger.debug(
+            'After'
+            ' self.create_per_storage_node_objects_list_and_request()')
 
         # For each storage node/list dispatch request to the storage node
         # and get response
         self.response_in = defaultdict(list)
         threads = []
         for ip_addr in self.per_node_request:
-            #logs inside loop outside of threads nok...
-            th = threading.Thread( \
-            target=self.submit_request_to_storage_node_and_get_response, 
-            args=(ip_addr,))
+            # logs inside loop outside of threads nok...
+            th = threading.Thread(
+                target=self.submit_request_to_storage_node_and_get_response,
+                args=(ip_addr,))
             th.start()
             threads.append(th)
         for th in threads:
             th.join()
-        return
 
     def merge_responses_from_storage_nodes(self, hlm_req):
         if hlm_req == 'status':
@@ -604,15 +614,17 @@ class HlmMiddleware(object):
             self.response_out = {}
             for ip_addr in self.response_in:
                 self.logger.debug('response_in[ip_addr](first 1024 bytes): %s',
-                        str(self.response_in[ip_addr])[0:1023])
+                                  str(self.response_in[ip_addr])[0:1023])
                 try:
-                    resp_in = (json.loads(self.response_in[ip_addr]))['objects']
+                    resp_in = (json.loads(
+                        self.response_in[ip_addr]))['objects']
                 except ValueError as err:
-                    self.logger.error('Could not decode JSON response: %s', err)
+                    self.logger.error('Could not decode JSON response: %s',
+                                      err)
                 for dct in resp_in:
                     self.logger.debug('dct: %s', str(dct))
                     obj = dct['object']
-                    if not obj in self.response_out:
+                    if obj not in self.response_out:
                         self.response_out[obj] = dct['status']
                     elif self.response_out[obj] != dct['status']:
                         self.response_out[obj] = 'unknown'
@@ -638,10 +650,10 @@ class HlmMiddleware(object):
         request_tries = int(conf.get('request_tries') or 3)
         internal_client_conf_path = conf.get('internal_client_conf_path')
         if not internal_client_conf_path:
-#            self.logger.warning(
-#                 ('Configuration option internal_client_conf_path not '
-#                  'defined. Using default configuration, See '
-#                  'internal-client.conf-sample for options'))
+            # self.logger.warning(
+            # ('Configuration option internal_client_conf_path not '
+            # 'defined. Using default configuration, See '
+            # 'internal-client.conf-sample for options'))
             internal_client_conf = ConfigString(ic_conf_body)
         else:
             internal_client_conf = internal_client_conf_path
@@ -683,8 +695,8 @@ class HlmMiddleware(object):
         else:
             return False
 
-    def queue_migration_or_recall_request(self, hlm_req, 
-            account, container, spi, obj):
+    def queue_migration_or_recall_request(self, hlm_req,
+                                          account, container, spi, obj):
         # Debug info
         self.logger.debug('Queue HLM %s request\n', hlm_req)
         self.logger.debug('/acc/con/obj: %s/%s/%s', account, container, obj)
@@ -699,10 +711,10 @@ class HlmMiddleware(object):
         if obj:
             req_name += "--" + obj
         # Queue SwiftHLM task by storing empty object to special container
-        headers = {'X-Size': 0, 
-                    'X-Etag': 'swifthlm_task_etag',
-                    'X-Timestamp': Timestamp(time.time()).internal,
-                    'X-Content-Type': 'application/swifthlm-task'}
+        headers = {'X-Size': 0,
+                   'X-Etag': 'swifthlm_task_etag',
+                   'X-Timestamp': Timestamp(time.time()).internal,
+                   'X-Content-Type': 'application/swifthlm-task'}
         try:
             self.direct_put_to_swifthlm_account(
                 SWIFTHLM_PENDING_REQUESTS_CONTAINER, req_name, headers)
@@ -715,12 +727,12 @@ class HlmMiddleware(object):
     def pull_a_mig_or_rec_request_from_queue(self):
         # Pull a request from SWIFTHLM_PENDING_REQUESTS_CONTAINER
         # First list the objects (requests) from the queue
-        #headers_out = {'X-Newest': True}
-        try: 
+        # headers_out = {'X-Newest': True}
+        try:
             objects = self.swift.iter_objects(
-                    account=SWIFTHLM_ACCOUNT, 
+                    account=SWIFTHLM_ACCOUNT,
                     container=SWIFTHLM_PENDING_REQUESTS_CONTAINER)
-                    #headers=headers_out)
+            # headers=headers_out)
         except UnexpectedResponse as err:
             self.logger.error('Pull request error: %s', err)
             return False
@@ -741,20 +753,23 @@ class HlmMiddleware(object):
         # Debug info
         self.logger.debug('Queue failed request: %s', request)
         # Create container/queue for failed requests, if not existing
-        # TODO: consider checking/doing this 'one time' only e.g. at install 
-        if not self.swift.container_exists(account=SWIFTHLM_ACCOUNT,
+        # TODO: consider checking/doing this 'one time' only e.g. at install
+        if not self.swift.container_exists(
+                account=SWIFTHLM_ACCOUNT,
                 container=SWIFTHLM_FAILED_REQUESTS_CONTAINER):
             try:
-                self.swift.create_container(account=SWIFTHLM_ACCOUNT,
-                        container=SWIFTHLM_FAILED_REQUESTS_CONTAINER)
+                self.swift.create_container(
+                    account=SWIFTHLM_ACCOUNT,
+                    container=SWIFTHLM_FAILED_REQUESTS_CONTAINER)
             except Exception, e:  # noqa
                 self.logger.error('Queue request error: %s', str(e))
                 return False
         # queue failed request
         body = ''
         try:
-            self.swift.upload_object(FileLikeIter(body), 
-                account=SWIFTHLM_ACCOUNT, 
+            self.swift.upload_object(
+                FileLikeIter(body),
+                account=SWIFTHLM_ACCOUNT,
                 container=SWIFTHLM_FAILED_REQUESTS_CONTAINER,
                 obj=request)
         except UnexpectedResponse as err:
@@ -768,25 +783,26 @@ class HlmMiddleware(object):
     def success_remove_related_requests_from_failed_queue(self, request):
         ts, hlm_req, acc, con, spi, obj = \
             self.decode_request(request)
-        failed_requests = self.get_list_of_objects(SWIFTHLM_ACCOUNT,
-            SWIFTHLM_FAILED_REQUESTS_CONTAINER)
-        for freq in failed_requests: 
+        failed_requests = \
+            self.get_list_of_objects(SWIFTHLM_ACCOUNT,
+                                     SWIFTHLM_FAILED_REQUESTS_CONTAINER)
+        for freq in failed_requests:
             fts, fhlm_req, facc, fcon, fspi, fobj = \
                 self.decode_request(freq)
             # TODO Consider removing obj requests when cont request succeeds
             # as well as other similar "merging" logic
             if fobj == obj and fcon == con and facc == acc:
-                if not self.delete_request_from_queue(freq,
-                        SWIFTHLM_FAILED_REQUESTS_CONTAINER):
-                   self.logger.warning('Stale failed request %s', freq) 
+                if not self.delete_request_from_queue(
+                        freq, SWIFTHLM_FAILED_REQUESTS_CONTAINER):
+                    self.logger.warning('Stale failed request %s', freq)
 
     def delete_request_from_queue(self, request, queue):
         # Debug info
         self.logger.debug('Delete %s from %s', request, queue)
         # delete request
         try:
-            self.swift.delete_object( 
-                account=SWIFTHLM_ACCOUNT, 
+            self.swift.delete_object(
+                account=SWIFTHLM_ACCOUNT,
                 container=queue,
                 obj=request)
         except UnexpectedResponse as err:
@@ -812,29 +828,31 @@ class HlmMiddleware(object):
 
     def get_pending_and_failed_requests(self, acc, con, obj):
         self.logger.debug('Get pending hlm requests')
-        pending_requests = self.get_list_of_objects(SWIFTHLM_ACCOUNT,
-            SWIFTHLM_PENDING_REQUESTS_CONTAINER)
+        pending_requests = \
+            self.get_list_of_objects(SWIFTHLM_ACCOUNT,
+                                     SWIFTHLM_PENDING_REQUESTS_CONTAINER)
         self.logger.debug('pending: %s', str(pending_requests))
         self.logger.debug('Get failed hlm requests')
-        failed_requests = self.get_list_of_objects(SWIFTHLM_ACCOUNT,
-            SWIFTHLM_FAILED_REQUESTS_CONTAINER)
+        failed_requests = \
+            self.get_list_of_objects(SWIFTHLM_ACCOUNT,
+                                     SWIFTHLM_FAILED_REQUESTS_CONTAINER)
         self.logger.debug('failed: %s', str(failed_requests))
         self.response_out = []
-        for preq in pending_requests: 
+        for preq in pending_requests:
             self.logger.debug('pending: %s', str(preq))
             ts, hlm_req, a, c, sp, o = self.decode_request(preq)
             if not obj and a == acc and c == con or \
                 obj and a == acc and c == con and o == obj or \
-                obj and not o and a == acc and c == con:
+                    obj and not o and a == acc and c == con:
                 self.response_out.append(preq + '--pending')
-        for freq in failed_requests: 
+        for freq in failed_requests:
             ts, hlm_req, a, c, sp, o = self.decode_request(freq)
             if not obj and a == acc and c == con or \
                 obj and a == acc and c == con and o == obj or \
-                obj and not o and a == acc and c == con:
+                    obj and not o and a == acc and c == con:
                 self.response_out.append(freq + '--failed')
         self.logger.debug('reqs: %s', str(self.response_out))
-        return 
+
 
 def filter_factory(global_conf, **local_conf):
     conf = global_conf.copy()
