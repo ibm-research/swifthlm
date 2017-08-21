@@ -160,6 +160,8 @@ class Handler(object):
         self.request_out = {}
         self.request_out['request'] = request_in_dict['request']
         objects_and_files = []
+        oc = ObjectController(self.conf, self.logger)
+        self.logger.debug('oc.node_timeout: %s', oc.node_timeout)
         for obj_and_dev in request_in_dict['objects']:
             obj_and_file = {}
             obj_and_file['object'] = obj_and_dev['object']
@@ -192,8 +194,6 @@ class Handler(object):
             self.logger.debug('hash_path or key: %s', key)
 
             # Create/use Object Controller to map objects to files
-            oc = ObjectController(self.conf, self.logger)
-            self.logger.debug('oc.node_timeout: %s', oc.node_timeout)
             policy = POLICIES.get_by_index(storage_policy_index)
             self.logger.debug('policy: %s index: %s', policy, str(int(policy)))
             try:
@@ -207,6 +207,7 @@ class Handler(object):
             data_dir = oc.disk_file._datadir
             self.logger.debug('data_dir: %s', data_dir)
             # Swift-on-File detection
+            sof_detected = False
             # Get the device path from the object server config file
             devpath = self.conf.get('devices', None)
             # The Swift-on-File device directory is a symlink
@@ -214,15 +215,13 @@ class Handler(object):
             sofpath = devpath + '/' + obj_and_dev['device']
             if data_dir.find(sofpath) == 0 and os.path.islink(sofpath):
                 # data_dir starts with sofpath and sofpath is a symlink -> SoF
+                sof_detected = True
                 self.logger.debug('SOF detected, sofpath: %s, realpath: %s',
                                   sofpath, os.path.realpath(sofpath))
                 # Follow the symlink and append a/c/o to get the data file path
                 oc._data_file = os.path.realpath(sofpath) + \
                     obj_and_file['object']
-                data_dir = os.path.realpath(sofpath) + '/' + account + \
-                    '/' + container
-            else:
-                if not self.gbi_provide_dirpaths_instead_of_filepaths:
+            elif not self.gbi_provide_dirpaths_instead_of_filepaths:
                     files = os.listdir(oc.disk_file._datadir)
                     file_info = {}
                     # DiskFile method got renamed between Liberty and Mitaka
@@ -234,7 +233,8 @@ class Handler(object):
                     self.logger.debug('data_file: %s', oc._data_file)
             # Add file path to the request
             self.logger.debug('obj_and_dev: %s', obj_and_dev)
-            if not self.gbi_provide_dirpaths_instead_of_filepaths:
+            if (not self.gbi_provide_dirpaths_instead_of_filepaths) or \
+               sof_detected:
                 obj_and_file['file'] = oc._data_file
             else:
                 obj_and_file['file'] = data_dir
