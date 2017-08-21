@@ -615,6 +615,7 @@ class HlmMiddleware(object):
             for ip_addr in self.response_in:
                 self.logger.debug('response_in[ip_addr](first 1024 bytes): %s',
                                   str(self.response_in[ip_addr])[0:1023])
+                resp_in = {}
                 try:
                     resp_in = (json.loads(
                         self.response_in[ip_addr]))['objects']
