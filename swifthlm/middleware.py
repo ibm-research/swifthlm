@@ -701,16 +701,16 @@ class HlmMiddleware(object):
         # Debug info
         self.logger.debug('Queue HLM %s request\n', hlm_req)
         self.logger.debug('/acc/con/obj: %s/%s/%s', account, container, obj)
-        # Queue request as empty object in special /acccount/container
+        # Queue request as empty object in special /account/container
         # /SWIFTHLM_ACCOUNT/SWIFTHLM_PENDING_REQUESTS_CONTAINER
         # Name object using next syntax
-        # migrate--yyyymmddhhmmss.msc--account--container--spi
-        # recall--yyyymmddhhmmss.msc--account--container--spi--object
+        # /yyyymmddhhmmss.msc/migrate|recall/account/container/spi
+        # /yyyymmddhhmmss.msc/migrate|recall/account/container/spi/object
         curtime = datetime.datetime.now().strftime("%Y%m%d%H%M%S.%f")[:-3]
-        body = ''
-        req_name = "--".join([curtime, hlm_req, account, container, str(spi)])
+        req_name = "/".join(['', curtime, hlm_req, account, container,
+                             str(spi)])
         if obj:
-            req_name += "--" + obj
+            req_name += "/" + obj
         # Queue SwiftHLM task by storing empty object to special container
         headers = {'X-Size': 0,
                    'X-Etag': 'swifthlm_task_etag',
@@ -815,14 +815,16 @@ class HlmMiddleware(object):
         return True
 
     def decode_request(self, request):
-        req_parts = request.split("--")
+        # Note: no backward compatibility to previous implementation
+        # that used '--' as delimiter.
+        req_parts = request.split('/')[1:]
         timestamp = req_parts[0]
         hlm_req = req_parts[1]
         account = req_parts[2]
         container = req_parts[3]
         spi = req_parts[4]
-        if len(req_parts) == 6:
-            obj = req_parts[5]
+        if len(req_parts) > 5:
+            obj = '/'.join(req_parts[5:])
         else:
             obj = None
         return timestamp, hlm_req, account, container, spi, obj
