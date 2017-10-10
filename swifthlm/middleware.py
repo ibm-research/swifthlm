@@ -116,7 +116,8 @@ from errno import ENOENT
 from swift.common.swob import Request, Response
 from swift.common.http import (HTTP_OK, HTTP_INTERNAL_SERVER_ERROR,
                                HTTP_ACCEPTED, HTTP_PRECONDITION_FAILED)
-from swift.common.utils import register_swift_info
+from swift.common.utils import register_swift_info, cache_from_env
+from swift.common.memcached import MemcacheConnectionError
 
 from swift.common.ring import Ring
 from swift.common.utils import json, get_logger, split_path
@@ -238,6 +239,9 @@ class HlmMiddleware(object):
         # Container ring
         self.container_ring = Ring(self.swift_dir, ring_name='container')
 
+        # Memcache client
+        self.mcache = None
+
         self.logger.info('info: Initialized SwiftHLM Middleware')
         self.logger.debug('dbg: Initialized SwiftHLM Middleware')
 
@@ -273,8 +277,13 @@ class HlmMiddleware(object):
         #                   str(env['RAW_PATH_INFO']))
         req = Request(env)
         self.req = req
-        # if not self.swift:
-        #    self.create_internal_swift_client()
+
+        if self.mcache is None:
+            self.mcache = cache_from_env(req.environ)
+        if not self.mcache:
+            self.logger.error('Memcache not found')
+        else:
+            self.logger.debug('Memcache registered')
 
         # Split request path to determine version, account, container, object
         try:
@@ -318,6 +327,9 @@ class HlmMiddleware(object):
                 method == 'POST' and
                 (hlm_req == 'migrate' or hlm_req == 'recall' or
                  hlm_req == 'smigrate' or hlm_req == 'srecall')):
+            if method == 'PUT' and obj:
+                objpath = '/%s/%s/%s' % (account, container, obj)
+                self._put_state_to_cache(objpath, 'resident')
             return self.app(env, start_response)
 
         # Process by this middleware. First check if the container and/or
@@ -375,22 +387,34 @@ class HlmMiddleware(object):
                 and hlm_req != 'status' and hlm_req != 'requests':
             # check status and either let GET proceed or return error code
             hlm_req = 'status'
+            status = 'unknown'
+            # check if status is cached in memcached
+            if self.mcache:
+                (valid, cached) = self._get_object_state_from_cache(account,
+                                                                    container,
+                                                                    obj)
+                if valid:
+                    status = cached
 
-            # Distribute request to storage nodes get responses
-            self.distribute_request_to_storage_nodes_get_responses(hlm_req,
-                                                                   account,
-                                                                   container,
-                                                                   obj)
+            if status == 'unknown':
+                # Distribute request to storage nodes get responses
+                self.distribute_request_to_storage_nodes_get_responses(
+                    hlm_req,
+                    account,
+                    container,
+                    obj)
 
-            # Merge responses from storage nodes
-            # i.e. merge self.response_in into self.response_out
-            self.merge_responses_from_storage_nodes(hlm_req)
+                # Merge responses from storage nodes
+                # i.e. merge self.response_in into self.response_out
+                self.merge_responses_from_storage_nodes(hlm_req)
 
-            # Resident or premigrated state is condition to pass request,
-            # else return error code
-            self.logger.debug('self.response_out: %s', str(self.response_out))
-            obj = "/" + "/".join([account, container, obj])
-            status = self.response_out[obj]
+                # Resident or premigrated state is condition to pass request,
+                # else return error code
+                self.logger.debug('self.response_out: %s',
+                                  str(self.response_out))
+                obj = "/" + "/".join([account, container, obj])
+                status = self.response_out[obj]
+
             if status not in ['resident', 'premigrated']:
                 return Response(status=HTTP_PRECONDITION_FAILED,
                                 body="Object %s needs to be RECALL-ed before "
@@ -427,6 +451,8 @@ class HlmMiddleware(object):
             self.queue_migration_or_recall_request(hlm_req, account, container,
                                                    spi, obj)
             self.logger.debug('Queued %s request.', hlm_req)
+            # Invalidate cache for object or entire container
+            self._remove_from_cache(account, container, obj)
 
             return Response(status=HTTP_OK,
                             body='Accepted %s request.\n' % hlm_req,
@@ -439,16 +465,28 @@ class HlmMiddleware(object):
                 (hlm_req == 'smigrate' or hlm_req == 'srecall'):
             if (hlm_req == 'smigrate' or hlm_req == 'srecall'):
                 hlm_req = hlm_req[1:]
+            cached = False
+            if method == 'GET':
+                if obj:
+                    (valid, cache_data) = self._get_object_state_from_cache(
+                        account, container, obj)
+                    if valid:
+                        cached = True
+                        self.response_out = {}
+                        objpath = '/%s/%s/%s' % (account, container, obj)
+                        self.response_out[objpath] = cache_data
+                else:
+                    if self._objects_cached(account, container):
+                        cached = True
 
-            # Distribute request to storage nodes get responses
-            self.distribute_request_to_storage_nodes_get_responses(hlm_req,
-                                                                   account,
-                                                                   container,
-                                                                   obj)
+            if not cached:
+                # Distribute request to storage nodes get responses
+                self.distribute_request_to_storage_nodes_get_responses(
+                    hlm_req, account, container, obj)
 
-            # Merge responses from storage nodes
-            # i.e. merge self.response_in into self.response_out
-            self.merge_responses_from_storage_nodes(hlm_req)
+                # Merge responses from storage nodes
+                # i.e. merge self.response_in into self.response_out
+                self.merge_responses_from_storage_nodes(hlm_req)
 
             # Report result
             # jout = json.dumps(out) + str(len(json.dumps(out)))
@@ -460,13 +498,8 @@ class HlmMiddleware(object):
         return self.app(env, start_response)
 
     def get_list_of_objects(self, account, container):
-        # if not self.swift:
-        #     self.create_internal_swift_client()
         try:
             objects_iter = self.swift.iter_objects(account, container)
-            # objects_iter = self.swift.iter_objects(
-            #        account=account,
-            #        container=container)
         except UnexpectedResponse as err:
             self.logger.error('List container objects error: %s', err)
             return False
@@ -479,6 +512,88 @@ class HlmMiddleware(object):
             for obj in objects_iter:
                 objects.append(obj['name'])
         return objects
+
+    def _get_object_state_from_cache(self, account, container, object):
+        memcache_key = 'hlm/%s/%s/%s' % (account, container,
+                                         object)
+        cache_data = None
+        try:
+            cache_data = self.mcache.get(memcache_key)
+            if cache_data is None:
+                return False, None
+            self.logger.debug('Got cache entry %s: %s', memcache_key,
+                              cache_data)
+
+        except MemcacheConnectionError:
+            self.log.error('Memcache connection error')
+            return False, None
+        return True, cache_data
+
+    def _put_state_to_cache(self, objpath, state):
+        if self.mcache:
+            memcache_key = 'hlm%s' % objpath
+            try:
+                self.mcache.set(memcache_key, state)
+                self.logger.debug('Cached: %s: %s', memcache_key, state)
+            except MemcacheConnectionError:
+                self.log.error('Memcache connection error')
+                return False
+        else:
+            return False
+        return True
+
+    def _remove_obj_from_cache(self, objpath):
+        if self.mcache:
+            memcache_key = 'hlm%s' % objpath
+            try:
+                self.mcache.delete(memcache_key)
+                self.logger.debug('Deleted %s from cache', memcache_key)
+            except MemcacheConnectionError:
+                self.log.error('Memcache connection error')
+                return False
+        else:
+            return False
+        return True
+
+    def _remove_from_cache(self, account, container, objname):
+        if objname:
+            objpath = '/%s/%s/%s' % (account, container, objname)
+            return self._remove_obj_from_cache(objpath)
+        else:
+            try:
+                objects_iter = self.swift.iter_objects(account, container)
+            except UnexpectedResponse as err:
+                self.logger.error('List container objects error: %s', err)
+                return False
+            except Exception, e:  # noqa
+                self.logger.error('List container objects error: %s', str(e))
+                return False
+            if objects_iter:
+                for obj in objects_iter:
+                    objpath = '/%s/%s/%s' % (account, container, obj['name'])
+                    if not self._remove_obj_from_cache(objpath):
+                        return False
+        return True
+
+    def _objects_cached(self, account, container):
+        self.response_out = {}
+        try:
+            objects_iter = self.swift.iter_objects(account, container)
+        except UnexpectedResponse as err:
+            self.logger.error('List container objects error: %s', err)
+            return False
+        except Exception, e:  # noqa
+            self.logger.error('List container objects error: %s', str(e))
+            return False
+        if objects_iter:
+            for obj in objects_iter:
+                (valid, cache_data) = self._get_object_state_from_cache(
+                    account, container, obj['name'])
+                if not valid:
+                    return False
+                objpath = '/%s/%s/%s' % (account, container, obj['name'])
+                self.response_out[objpath] = cache_data
+        return True
 
     def create_per_storage_node_objects_list_and_request(self, hlm_req,
                                                          account, container,
@@ -629,6 +744,8 @@ class HlmMiddleware(object):
                         self.response_out[obj] = dct['status']
                     elif self.response_out[obj] != dct['status']:
                         self.response_out[obj] = 'unknown'
+                    # Cache status response
+                    self._put_state_to_cache(obj, self.response_out[obj])
         else:
             # MIGRATE or RECALL
             self.response_out = "0"
