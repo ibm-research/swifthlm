@@ -85,8 +85,6 @@ class SwiftHlmDispatcher(object):
 
         # Import SwiftHLM middleware function that can be reused by Dispatcher
         self.swifthlm_mw = middleware.HlmMiddleware('proxy-server', self.conf)
-        # and (!) initialize internal swift client (not done at init in mw)
-        # self.swifthlm_mw.create_internal_swift_client()
 
         # Memory of previous queue pulling result, used to adapt pulling period
         self.found_empty_queue = False
