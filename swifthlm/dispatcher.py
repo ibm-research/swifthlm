@@ -48,6 +48,7 @@ from swift.common.daemon import Daemon
 from swift.common.http import HTTP_UNAUTHORIZED, HTTP_NOT_FOUND
 from swift.common.storage_policy import POLICIES
 from swift.common.wsgi import ConfigString
+from swift.common.middleware.memcache import MemcacheMiddleware as memcache
 
 from swift.common.utils import readconf
 from socket import gethostname, gethostbyname
@@ -66,6 +67,10 @@ class SwiftHlmDispatcher(object):
         # Config
         configFile = r'/etc/swift/proxy-server.conf'
         self.conf = readconf(configFile)
+
+        # Instantiate memcache instance to be injected into swifthlm middleware
+        # for status cache refresh
+        self.memcache_mw = memcache('proxy-server', self.conf['filter:cache'])
 
         # This host ip address
         self.ip = gethostbyname(gethostname())
@@ -139,6 +144,29 @@ class SwiftHlmDispatcher(object):
             else:
                 self.logger.error('Failed to delete request: %s', request)
 
+            # A failure during migrate will most likely invalidate the
+            #   "migrated" state cached at migration start -> enforce status
+            #   request to update the cache
+            # For recall, always update status
+            if (hlm_req == 'migrate' and 'successful' not in response) \
+               or hlm_req == 'recall':
+                # The most straight-forward (and potentially also most
+                # performant) method to directly invoke the HLM middleware
+                # functions does not allow cache updates as the directly
+                # called middleware code does not have access to the WSGI
+                # environment that keeps the pointer to the memcache class.
+                # So we use our own memcache middleware instance and
+                # "patch" its MemcacheRing object into our hlm middleware
+                # instance.
+                setattr(self.swifthlm_mw, 'mcache',
+                        getattr(self.memcache_mw, 'memcache'))
+                new_hlm_req = 'status'
+                mw.distribute_request_to_storage_nodes_get_responses(
+                    new_hlm_req,
+                    account,
+                    container,
+                    obj, spi)
+                mw.merge_responses_from_storage_nodes(new_hlm_req)
         return
 
     # Dispatcher runs until stopped

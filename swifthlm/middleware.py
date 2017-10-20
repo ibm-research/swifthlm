@@ -451,8 +451,10 @@ class HlmMiddleware(object):
             self.queue_migration_or_recall_request(hlm_req, account, container,
                                                    spi, obj)
             self.logger.debug('Queued %s request.', hlm_req)
-            # Invalidate cache for object or entire container
-            self._remove_from_cache(account, container, obj)
+            # If migrating, set cached object status to 'migrated'
+            # at dispatch time, only correct in case migration failed
+            if hlm_req == 'migrate':
+                self._put_migrated_state_to_cache(account, container, obj)
 
             return Response(status=HTTP_OK,
                             body='Accepted %s request.\n' % hlm_req,
@@ -525,7 +527,7 @@ class HlmMiddleware(object):
                               cache_data)
 
         except MemcacheConnectionError:
-            self.log.error('Memcache connection error')
+            self.logger.error('Memcache connection error')
             return False, None
         return True, cache_data
 
@@ -536,10 +538,31 @@ class HlmMiddleware(object):
                 self.mcache.set(memcache_key, state)
                 self.logger.debug('Cached: %s: %s', memcache_key, state)
             except MemcacheConnectionError:
-                self.log.error('Memcache connection error')
+                self.logger.error('Memcache connection error')
                 return False
         else:
+            self.logger.debug('Cache not found')
             return False
+        return True
+
+    def _put_migrated_state_to_cache(self, account, container, objname):
+        if objname:
+            objpath = '/%s/%s/%s' % (account, container, objname)
+            return self._put_state_to_cache(objpath, 'migrated')
+        else:
+            try:
+                objects_iter = self.swift.iter_objects(account, container)
+            except UnexpectedResponse as err:
+                self.logger.error('List container objects error: %s', err)
+                return False
+            except Exception, e:  # noqa
+                self.logger.error('List container objects error: %s', str(e))
+                return False
+            if objects_iter:
+                for obj in objects_iter:
+                    objpath = '/%s/%s/%s' % (account, container, obj['name'])
+                    if not self._put_state_to_cache(objpath, 'migrated'):
+                        return False
         return True
 
     def _remove_obj_from_cache(self, objpath):
@@ -549,7 +572,7 @@ class HlmMiddleware(object):
                 self.mcache.delete(memcache_key)
                 self.logger.debug('Deleted %s from cache', memcache_key)
             except MemcacheConnectionError:
-                self.log.error('Memcache connection error')
+                self.logger.error('Memcache connection error')
                 return False
         else:
             return False
@@ -603,7 +626,7 @@ class HlmMiddleware(object):
         # First get list of objects
         objects = []
         if obj:
-            self.logger.debug('Object request')
+            self.logger.debug('Object request: %s', str(obj))
             objects.append(str(obj))
         else:
             self.logger.debug('Container request')
