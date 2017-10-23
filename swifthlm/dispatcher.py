@@ -148,8 +148,14 @@ class SwiftHlmDispatcher(object):
             #   "migrated" state cached at migration start -> enforce status
             #   request to update the cache
             # For recall, always update status
-            if (hlm_req == 'migrate' and 'successful' not in response) \
+            if (hlm_req == 'migrate' and 'successful' not in mw.response_out) \
                or hlm_req == 'recall':
+                # Work around status propagation delay.
+                # By waiting 120 seconds it is ensured that status updates are
+                # caught up backend.
+                # To prevent dispatcher operation delay, we might need to
+                # execute the following commands from a separate thread.
+                sleep(120)
                 # The most straight-forward (and potentially also most
                 # performant) method to directly invoke the HLM middleware
                 # functions does not allow cache updates as the directly
