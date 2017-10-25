@@ -31,7 +31,7 @@ from time import ctime, time
 from random import choice, random, shuffle
 from struct import unpack_from
 
-from eventlet import sleep, Timeout
+from eventlet import sleep
 
 from swift.container.backend import ContainerBroker, DATADIR
 from swift.common.container_sync_realms import ContainerSyncRealms
@@ -68,18 +68,16 @@ class SwiftHlmDispatcher(object):
         configFile = r'/etc/swift/proxy-server.conf'
         self.conf = readconf(configFile)
 
-        # Instantiate memcache instance to be injected into swifthlm middleware
-        # for status cache refresh
-        self.memcache_mw = memcache('proxy-server', self.conf['filter:cache'])
-
         # This host ip address
         self.ip = gethostbyname(gethostname())
 
         # Logging
         hlm_stor_node_config = self.conf.get('filter:hlm', None)
+
         if hlm_stor_node_config:
             hlm_stor_node_log_level = hlm_stor_node_config.get('set log_level',
                                                                None)
+
         if hlm_stor_node_log_level:
             self.conf['log_level'] = hlm_stor_node_log_level
         self.logger = get_logger(self.conf, name='hlm-dispatcher',
@@ -91,15 +89,72 @@ class SwiftHlmDispatcher(object):
         # Import SwiftHLM middleware function that can be reused by Dispatcher
         self.swifthlm_mw = middleware.HlmMiddleware('proxy-server', self.conf)
 
+        # Instantiate memcache instance to be injected into swifthlm middleware
+        # for status cache refresh
+        self.memcache_mw = memcache('proxy-server', self.conf['filter:cache'])
+        # Use our own memcache middleware instance and "patch" its MemcacheRing
+        # object into our hlm middleware instance to allow cache updates as the
+        # directly called middleware code does not have access to the WSGI
+        # environment that keeps the pointer to the memcache class.
+        setattr(self.swifthlm_mw, 'mcache',
+                getattr(self.memcache_mw, 'memcache'))
+
         # Memory of previous queue pulling result, used to adapt pulling period
         self.found_empty_queue = False
-
         self.logger.info('info: Initialized Dispatcher')
-        self.logger.debug('dbg: Initialized Dispatcher')
+
+    # A failure during migrate will most likely invalidate the
+    #   "migrated" state cached at migration start -> enforce status
+    #   request to update the cache
+    # For recall, always update status
+    def status_update_required(self, hlm_req, success):
+        if (hlm_req == 'migrate' and not success) \
+           or hlm_req == 'recall':
+            return True
+        else:
+            return False
+
+    # If success remove from queue else queue as failed and remove from queue.
+    def update_queue(self, mw, request, success):
+        # Queue failed request to failed-hlm-requests container/queue
+        if not success:
+            if mw.queue_failed_migration_or_recall_request(request):
+                self.logger.debug('Queued failed request: %s', request)
+            else:
+                self.logger.error('Failed to queue failed req.: %s',
+                                  request)
+
+        # If a request is resubmitted upon a failure(s) and succeeds,
+        # clean up the related failed requests
+        if success:
+            mw.success_remove_related_requests_from_failed_queue(request)
+
+        # Delete the processed request from the pending-hlm-requests queue
+        if mw.delete_request_from_queue(request, 'pending-hlm-requests'):
+            self.logger.debug('Deleted request from queue: %s', request)
+        else:
+            self.logger.error('Failed to delete request: %s', request)
+
+    # Updates the cached status at the end of the request processing.
+    def update_status(self, mw, request, success):
+        self.logger.debug('Entering status update')
+        timestamp, hlm_req, account, container, spi, obj = \
+            mw.decode_request(request)
+        # Invoke the status request directly - keep in mind that this
+        # is only possible as we patched a directly instantiated memcache
+        # middleware into the swifthlm middleware instance we are using
+        new_hlm_req = 'status'
+        mw.distribute_request_to_storage_nodes_get_responses(
+            new_hlm_req,
+            account,
+            container,
+            obj, spi)
+        mw.merge_responses_from_storage_nodes(new_hlm_req)
+
+        self.update_queue(mw, request, success)
 
     # Pulls a request from the queue, dispatches it to storage nodes, gets and
-    # merges the responses, if success remove from queue else queue as failed
-    # and remove from queue.
+    # merges the responses.
     def process_next_request(self):
         mw = self.swifthlm_mw
         # Pull request
@@ -125,54 +180,14 @@ class SwiftHlmDispatcher(object):
             # Merge responses from storage nodes
             mw.merge_responses_from_storage_nodes(hlm_req)
 
-            # Queue failed request to failed-hlm-requests container/queue
-            if 'successful' not in mw.response_out:
-                if mw.queue_failed_migration_or_recall_request(request):
-                    self.logger.debug('Queued failed request: %s', request)
-                else:
-                    self.logger.error('Failed to queue failed req.: %s',
-                                      request)
-
-            # If a request is resubmitted upon a failure(s) and succeeds,
-            # clean up the related failed requests
+            success = False
             if 'successful' in mw.response_out:
-                mw.success_remove_related_requests_from_failed_queue(request)
+                success = True
 
-            # Delete the processed request from the pending-hlm-requests queue
-            if mw.delete_request_from_queue(request, 'pending-hlm-requests'):
-                self.logger.debug('Deleted request from queue: %s', request)
+            if self.status_update_required(hlm_req, success):
+                self.update_status(mw, request, success)
             else:
-                self.logger.error('Failed to delete request: %s', request)
-
-            # A failure during migrate will most likely invalidate the
-            #   "migrated" state cached at migration start -> enforce status
-            #   request to update the cache
-            # For recall, always update status
-            if (hlm_req == 'migrate' and 'successful' not in mw.response_out) \
-               or hlm_req == 'recall':
-                # Work around status propagation delay.
-                # By waiting 120 seconds it is ensured that status updates are
-                # caught up backend.
-                # To prevent dispatcher operation delay, we might need to
-                # execute the following commands from a separate thread.
-                sleep(120)
-                # The most straight-forward (and potentially also most
-                # performant) method to directly invoke the HLM middleware
-                # functions does not allow cache updates as the directly
-                # called middleware code does not have access to the WSGI
-                # environment that keeps the pointer to the memcache class.
-                # So we use our own memcache middleware instance and
-                # "patch" its MemcacheRing object into our hlm middleware
-                # instance.
-                setattr(self.swifthlm_mw, 'mcache',
-                        getattr(self.memcache_mw, 'memcache'))
-                new_hlm_req = 'status'
-                mw.distribute_request_to_storage_nodes_get_responses(
-                    new_hlm_req,
-                    account,
-                    container,
-                    obj, spi)
-                mw.merge_responses_from_storage_nodes(new_hlm_req)
+                self.update_queue(mw, request, success)
         return
 
     # Dispatcher runs until stopped

@@ -675,18 +675,17 @@ class HlmMiddleware(object):
                 'python -m ' + 'swifthlm.handler')
         ich = stdin.channel
         och = stdout.channel
+        # Remote process stderr is not (yet) used here
         ech = stderr.channel
+        # Send request data
         ich.sendall(json.dumps(self.per_node_request[ip_addr]))
         stdin.flush()
         ich.shutdown_write()
         stdin.close()
-
         response = ''
-        errors = ''
         self.stdin_lock.release()
 
         self.stout_lock.acquire()
-
         # Set initial max amount of data to receive, after first receive we
         # adapt to the receive buffer size
         max_receive_bytes = 100
