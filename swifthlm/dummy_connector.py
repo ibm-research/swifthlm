@@ -24,8 +24,8 @@ SwiftHlmBackendConnector class and its public method for SwiftHLM Generic
 Backend API used between SwiftHLM and SwiftHLM Connector.
 
 *** SwiftHLM Generic Backend API version 0.2.1 ***
-(3 digits API versions, such version as 0.2.1, should be considered
-developmental and not stable)
+API versions with 3rd digit different from 0, such 0.2.1, should be considered
+developmental and not stable.
 
     response = SwiftHlmBackendConnector.submit_request_get_response(request)
 
@@ -50,7 +50,7 @@ response =
     ]
   }
 
-The deta structures used are dicitionary and list, the values are strings,
+The data structures used are dicitionary and list, the values are strings,
 shown above unquoted and additinally indented for easier reading.
 
 In addition to 'status', other requests are 'migrate' or 'recall' for which the
@@ -99,6 +99,7 @@ from swift.proxy.controllers.base import get_container_info
 # scor aux
 from swift.common.utils import hash_path
 
+import sqlite3
 
 # SwiftHLM Backend Connector
 class SwiftHlmBackendConnector(object):
@@ -160,29 +161,55 @@ class SwiftHlmBackendConnector(object):
         self.__request_out = self.__request_in
 
     # This exemplary method submits request to Backend and gets Response from
-    # Backend. Currently the dummy backend is not implemented and object state
-    # is not stored, instead response for migrate or recall is always 0
-    # (success) and for STATE it is always 'resident'
-    # TODO(Slavisa): Implement a somewhat improved dummy backend that simply
-    # stores object state resident/premigrated/migrated, using filepath as the
-    # database entiries key, into a simple database on file
-    # SwiftHLM-Dummy-Backend.db stored under a configurable path (e.g.
-    # /tmp/swifthlm for local and /cluster_fs/tmp/swifthlm for clustered file
-    # backends
+    # Backend. The dummy backend stores object state (resident, premigrated,
+    # or migrated) into a SQL database on file, using the object replica 
+    # filepath as the key and its status as the value.
+    # The database file is stored under /tmp/swifthlm_dummy_backend.db, which
+    # upon need could be made configurable.
+    # TODO: consider making the database file location configurable. 
     def __submit_request_to_backend_get_response(self):
         self.logger.debug('Submitting request to backend')
-        # migrate or recall
-        if self.__request_out['request'] in {'migrate', 'recall'}:
+        database = '/tmp/swifthlm_dummy_backend.db'
+        db_backend = SwiftHlmDummyBackendDb(database)
+        if db_backend == None:
+            self.logger.debug('failed to connect to db_backend db')  
+        self.logger.debug('before migrate')
+        # migrate 
+        if self.__request_out['request'] == 'migrate':
+            for object_file in self.__request_out['objects']:
+                try:
+                    db_backend.insert(object_file['file'], 'migrated')
+                except sqlite3.Error as err:
+                    self.logger.debug('error: inserting migrated status \
+                        into database (%s)', err)
+            db_backend.close()
             self.__response_in = 0
             return
+        self.logger.debug('before recall')
+        # recall 
+        if self.__request_out['request'] == 'recall':
+            for object_file in self.__request_out['objects']:
+                db_backend.query(object_file['file'])
+                if db_backend.status == 'migrated':
+                    try:
+                        db_backend.insert(object_file['file'], 'premigrated')
+                    except sqlite3.Error as err:
+                        self.logger.debug('error: inserting premigrated \
+                            status into database (%s)', err)
+            db_backend.close()
+            self.__response_in = 0
+            return
+        self.logger.debug('before status')
         # status
         objects_files_statuses = []
         for object_file in self.__request_out['objects']:
             object_file_status = {}
             object_file_status['object'] = object_file['object']
             object_file_status['file'] = object_file['file']
-            object_file_status['status'] = 'resident'
+            db_backend.query(object_file['file'])
+            object_file_status['status'] = db_backend.status
             objects_files_statuses.append(object_file_status)
+        db_backend.close()
         self.__response_in['objects'] = objects_files_statuses
         # self.__response_in = self.__request_out
 
@@ -193,6 +220,53 @@ class SwiftHlmBackendConnector(object):
         # Backend specific part, for the assumed dummy backend it just copies
         # the incoming response from the backend
         self.__response_out = self.__response_in
+
+# SwiftHLM Dummy Backend Database
+class SwiftHlmDummyBackendDb:
+
+    def __init__(self,dbname):
+        self.connection = None
+        self.cursor = None
+        self.database = dbname
+        self.table = 'status_table'
+        self.key = 'item_path'
+        self.value = 'status'
+        self.status = None # to store queried status
+        self.connect()
+
+    def connect(self):
+        try:
+            self.connection = sqlite3.connect(self.database)
+            self.cursor = self.connection.cursor()
+        except sqlite3.Error as err:
+            self.logger.debug('error: connecting to dummy backend status \
+                    database (%s)', err)
+            reise
+        self.cursor.execute('CREATE TABLE IF NOT EXISTS {tn} \
+                        ({kn} TEXT PRIMARY KEY, {vn} TEXT)'\
+                        .format(tn=self.table, kn=self.key, vn=self.value))
+        #self.connection.commit() # is it needed at this step?
+
+    def close(self):
+        if self.connection:
+            self.connection.commit()
+            self.cursor.close()
+            self.connection.close()
+
+    def insert(self, path, status):
+        c = self.cursor
+        c.execute('REPLACE INTO {tn} ({kn}, {vn}) VALUES (?, ?)'\
+        .format(tn=self.table, kn=self.key, vn=self.value), (path, status))
+
+    def query(self, path):
+        c = self.cursor
+        c.execute('SELECT {vn} FROM {tn} WHERE {kn}=?'\
+        .format(tn=self.table, kn=self.key, vn=self.value), (path, )) #..h, )!!
+        status = c.fetchone()
+        if status:
+            self.status = str(status[0])
+        else:
+            self.status = 'resident' # TODO: Handling 'unknown' status
 
 if __name__ == '__main__':
     # SwiftHlmConnector class is not assumed to be used standalone, instead it
