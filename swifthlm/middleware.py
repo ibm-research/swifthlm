@@ -108,6 +108,7 @@ import threading
 import time
 import datetime
 import socket
+import getpass
 
 from collections import defaultdict
 from paramiko import SSHClient, AutoAddPolicy
@@ -669,7 +670,7 @@ class HlmMiddleware(object):
         ssh_client = SSHClient()
         ssh_client.set_missing_host_key_policy(AutoAddPolicy())
         ssh_client.load_system_host_keys()
-        ssh_client.connect(ip_addr, username="swift")
+        ssh_client.connect(ip_addr, username=getpass.getuser())
         # Prepare remote Handler execution ssh pipe
         stdin, stdout, stderr = ssh_client.exec_command(
                 'python -m ' + 'swifthlm.handler')

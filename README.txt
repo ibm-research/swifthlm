@@ -149,13 +149,15 @@ the implementation file for each component.
     To write back the configuration and register the swifthlm middleware, run:
     # mmobj config change --ccrfile proxy-server.conf --merge-file /tmp/proxy-server.conf.merge
 
-4.2 Configure swift user passwordless ssh from SwiftHLM Dispatcher node to
-    Swift storage nodes, steps 4.2.1 - 4.2.2. Swift user is not a privileged
-    user and cannot execute privileged operations. 
+4.2 Configure passwordless ssh from Swift Proxy and SwiftHLM Dispatcher nodes to
+    Swift storage nodes, for the user used to run Swift and SwiftHLM processes,
+    steps 4.2.1 - 4.2.2. This is typically swift user, but can also be stack 
+    user (in devstack deployments) or any other user. Normally this user is not
+    a privileged user and cannot execute privileged operations. 
 
-4.2.1 Make sure swift user is allowed ssh login. 
+4.2.1 Make sure the user from 4.2 is allowed ssh login. 
     
-    E.g. if the entry in /etc/passwd for swift user is:
+    E.g. if this user is swift, and if swift user entry in /etc/passwd is:
     swift:x:160:160:OpenStack Swift Daemons:/var/lib/swift:/sbin/nologin
     ... modify it to:
     swift:x:160:160:OpenStack Swift Daemons:/var/lib/swift:/bin/bash
@@ -164,14 +166,20 @@ the implementation file for each component.
     from the remotely invokable pythyon module into a remotely accesible service
     running on a proxy node, and thus avoid need to allow swift user ssh login.)
 
-4.2.2 Setup key-based ssh for swift user:
-    - Use ssh-keygen to generate RSA keys on Dispatcher node
-    - cp content of /home/swift/.ssh/id_rsa.pub from Dispatcher node into
-      /home/swift/.ssh/authorized_keys on storage nodes
+4.2.2 Setup key-based ssh for the user from 4.2:
+    - Use ssh-keygen to generate RSA keys on Proxy and Dispatcher nodes
+    - cp content of /home/swift/.ssh/id_rsa.pub from Proxy and Dispatcher nodes
+    into /home/swift/.ssh/authorized_keys on storage nodes
 
 4.3 Register SwiftHLM Dispatcher with systemd:
 
     cp swifthlm/config/swifthlm.dispatcher.service /etc/systemd/system/swifthlm.dispatcher.service
+    
+    If the user from 4.2 is not swift user:
+    - edit /etc/systemd/system/swifthlm.dispatcher.service, line "User=swift",
+    and replace swift with the user from 4.2 
+    Note: if you further change this file upon the dispatcher service is 
+    is started, run 'systemctl daemon-reload' for the change to take effect
 
 4.4 Configure SwiftHLM to use a specific connector/backend:
 
