@@ -350,7 +350,11 @@ class HlmMiddleware(object):
         elif obj:
             obj_exists = False
             try:
-                objects_iter = self.swift.iter_objects(account, container)
+                path = self.swift.make_path(account, container, obj)
+                resp = self.swift.make_request('HEAD', path, {},
+                                               (2, HTTP_NOT_FOUND))
+                if not resp.status_int == HTTP_NOT_FOUND:
+                    obj_exists = True
             except Exception, e:  # noqa
                 self.logger.error('List container objects error: %s', str(e))
                 rbody = "Unable to check does object %s belong to /%s/%s." % \
@@ -362,11 +366,6 @@ class HlmMiddleware(object):
                                 content_type="application/json")(
                                     env,
                                     start_response)
-            if objects_iter:
-                for cobj in objects_iter:
-                    if cobj['name'] == obj:
-                        obj_exists = True
-                        break
             if not obj_exists:
                 rbody = "Object /%s/%s/%s does not exist." % (account,
                                                               container, obj)
@@ -517,7 +516,7 @@ class HlmMiddleware(object):
         return objects
 
     def _get_object_state_from_cache(self, account, container, object):
-        memcache_key = 'hlm/%s/%s/%s' % (account, container,
+        memcache_key = u'hlm/%s/%s/%s' % (account, container,
                                          object)
         cache_data = None
         try:
@@ -534,7 +533,7 @@ class HlmMiddleware(object):
 
     def _put_state_to_cache(self, objpath, state):
         if self.mcache:
-            memcache_key = 'hlm%s' % objpath
+            memcache_key = u'hlm%s' % objpath
             try:
                 self.mcache.set(memcache_key, state)
                 self.logger.debug('Cached: %s: %s', memcache_key, state)
@@ -548,7 +547,7 @@ class HlmMiddleware(object):
 
     def _put_migrated_state_to_cache(self, account, container, objname):
         if objname:
-            objpath = '/%s/%s/%s' % (account, container, objname)
+            objpath = u'/%s/%s/%s' % (account, container, objname)
             return self._put_state_to_cache(objpath, 'migrated')
         else:
             try:
@@ -568,7 +567,7 @@ class HlmMiddleware(object):
 
     def _remove_obj_from_cache(self, objpath):
         if self.mcache:
-            memcache_key = 'hlm%s' % objpath
+            memcache_key = u'hlm%s' % objpath
             try:
                 self.mcache.delete(memcache_key)
                 self.logger.debug('Deleted %s from cache', memcache_key)
@@ -581,7 +580,7 @@ class HlmMiddleware(object):
 
     def _remove_from_cache(self, account, container, objname):
         if objname:
-            objpath = '/%s/%s/%s' % (account, container, objname)
+            objpath = u'/%s/%s/%s' % (account, container, objname)
             return self._remove_obj_from_cache(objpath)
         else:
             try:
@@ -594,7 +593,7 @@ class HlmMiddleware(object):
                 return False
             if objects_iter:
                 for obj in objects_iter:
-                    objpath = '/%s/%s/%s' % (account, container, obj['name'])
+                    objpath = u'/%s/%s/%s' % (account, container, obj['name'])
                     if not self._remove_obj_from_cache(objpath):
                         return False
         return True
@@ -615,7 +614,7 @@ class HlmMiddleware(object):
                     account, container, obj['name'])
                 if not valid:
                     return False
-                objpath = '/%s/%s/%s' % (account, container, obj['name'])
+                objpath = u'/%s/%s/%s' % (account, container, obj['name'])
                 self.response_out[objpath] = cache_data
         return True
 
