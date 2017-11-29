@@ -150,6 +150,8 @@ from eventlet import Timeout, GreenPool, GreenPile, sleep
 from swift.common.utils import (split_path, config_true_value, whataremyips,
                                 get_logger, Timestamp, list_from_csv,
                                 last_modified_date_to_timestamp, quorum_size)
+from swift.common.utils import readconf
+import re
 
 # SwiftHLM Queues: account and container names
 SWIFTHLM_ACCOUNT = '.swifthlm'
@@ -190,6 +192,7 @@ pipeline = catch_errors proxy-logging cache proxy-server
 [app:proxy-server]
 use = egg:swift#proxy
 # See proxy-server.conf-sample for options
+allow_account_management = false
 
 [filter:cache]
 use = egg:swift#memcache
@@ -289,7 +292,7 @@ class HlmMiddleware(object):
         # Split request path to determine version, account, container, object
         try:
             (namespace, ver_ifhlm, cmd_ifhlm, acc_ifhlm, con_ifhlm, obj_ifhlm)\
-                    = req.split_path(2, 6, True)
+                    = req.split_path(1, 6, True)
         except ValueError:
             self.logger.debug('split_path exception')
             return self.app(env, start_response)
@@ -307,7 +310,7 @@ class HlmMiddleware(object):
             obj = obj_ifhlm
         else:
             try:
-                (version, account, container, obj) = req.split_path(2, 4, True)
+                (version, account, container, obj) = req.split_path(1, 4, True)
             except ValueError:
                 self.logger.debug('split_path exception')
                 return self.app(env, start_response)
@@ -789,14 +792,28 @@ class HlmMiddleware(object):
         conf = self.conf
         request_tries = int(conf.get('request_tries') or 3)
         internal_client_conf_path = conf.get('internal_client_conf_path')
+        proxy_config_file = r'/etc/swift/proxy-server.conf'
+        proxy_config = readconf(proxy_config_file)
+        proxy_app_config = proxy_config.get('app:proxy-server', None)
+        allow_acc_mgmt = proxy_app_config.get('allow_account_management', None)
+        self.logger.debug('allow_account_management: %s\n',
+                allow_acc_mgmt)
+        if allow_acc_mgmt == 'true':
+            ic_conf_body_use = re.sub(r'allow_account_management = .+\n',
+                    r'allow_account_management = true\n',
+                    ic_conf_body)
+        else:
+            ic_conf_body_use = ic_conf_body
         if not internal_client_conf_path:
             # self.logger.warning(
             # ('Configuration option internal_client_conf_path not '
             # 'defined. Using default configuration, See '
             # 'internal-client.conf-sample for options'))
-            internal_client_conf = ConfigString(ic_conf_body)
+            internal_client_conf = ConfigString(ic_conf_body_use)
         else:
             internal_client_conf = internal_client_conf_path
+        self.logger.debug('internal_client_conf: %s\n',
+                str(internal_client_conf))
         try:
             self.swift = InternalClient(
                 internal_client_conf, 'SwiftHLM Middleware', request_tries)
