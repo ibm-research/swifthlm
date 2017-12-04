@@ -193,6 +193,8 @@ class SwiftHlmDispatcher(object):
     # Dispatcher runs until stopped
     # ... unless it is invoked with sys.argv[1] == 1 (testing mode)
     def run(self, *args, **kwargs):
+        reload(sys)
+        sys.setdefaultencoding('utf8')
         if len(sys.argv) == 2 and str(sys.argv[1]) == "1":
             self.logger.debug('Polling the requests queue')
             print 'Polling the requests queue'

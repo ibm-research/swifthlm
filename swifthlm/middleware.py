@@ -441,7 +441,7 @@ class HlmMiddleware(object):
 
         # Async hlm migration or recall request
         elif method == 'POST' and \
-                (hlm_req == 'migrate'or hlm_req == 'recall'):
+                (hlm_req == 'migrate' or hlm_req == 'recall'):
             # if not self.swift:
             #    self.create_internal_swift_client()
             self.logger.debug(':%s:%s:%s:%s:', account, container, obj,
@@ -519,15 +519,21 @@ class HlmMiddleware(object):
         return objects
 
     def _get_object_state_from_cache(self, account, container, object):
-        memcache_key = u'hlm/%s/%s/%s' % (account, container,
+        memcache_key = 'hlm/%s/%s/%s' % (account, container,
                                          object)
+        #sladel
+        self.logger.debug('memcache_key: %s', memcache_key)
+        #sladel
         cache_data = None
         try:
             cache_data = self.mcache.get(memcache_key)
             if cache_data is None:
                 return False, None
-            self.logger.debug('Got cache entry %s: %s', memcache_key,
-                              cache_data)
+            #sladel
+            self.logger.debug('cache_data: %s', cache_data)
+            #sladel
+            ##self.logger.debug('Got cache entry %s: %s', memcache_key,
+            ##                  cache_data)
 
         except MemcacheConnectionError:
             self.logger.error('Memcache connection error')
@@ -536,7 +542,7 @@ class HlmMiddleware(object):
 
     def _put_state_to_cache(self, objpath, state):
         if self.mcache:
-            memcache_key = u'hlm%s' % objpath
+            memcache_key = 'hlm%s' % objpath
             try:
                 self.mcache.set(memcache_key, state)
                 self.logger.debug('Cached: %s: %s', memcache_key, state)
@@ -550,7 +556,7 @@ class HlmMiddleware(object):
 
     def _put_migrated_state_to_cache(self, account, container, objname):
         if objname:
-            objpath = u'/%s/%s/%s' % (account, container, objname)
+            objpath = '/%s/%s/%s' % (account, container, objname)
             return self._put_state_to_cache(objpath, 'migrated')
         else:
             try:
@@ -570,7 +576,7 @@ class HlmMiddleware(object):
 
     def _remove_obj_from_cache(self, objpath):
         if self.mcache:
-            memcache_key = u'hlm%s' % objpath
+            memcache_key = 'hlm%s' % objpath
             try:
                 self.mcache.delete(memcache_key)
                 self.logger.debug('Deleted %s from cache', memcache_key)
@@ -583,7 +589,7 @@ class HlmMiddleware(object):
 
     def _remove_from_cache(self, account, container, objname):
         if objname:
-            objpath = u'/%s/%s/%s' % (account, container, objname)
+            objpath = '/%s/%s/%s' % (account, container, objname)
             return self._remove_obj_from_cache(objpath)
         else:
             try:
@@ -596,7 +602,7 @@ class HlmMiddleware(object):
                 return False
             if objects_iter:
                 for obj in objects_iter:
-                    objpath = u'/%s/%s/%s' % (account, container, obj['name'])
+                    objpath = '/%s/%s/%s' % (account, container, obj['name'])
                     if not self._remove_obj_from_cache(objpath):
                         return False
         return True
@@ -617,7 +623,7 @@ class HlmMiddleware(object):
                     account, container, obj['name'])
                 if not valid:
                     return False
-                objpath = u'/%s/%s/%s' % (account, container, obj['name'])
+                objpath = '/%s/%s/%s' % (account, container, obj['name'])
                 self.response_out[objpath] = cache_data
         return True
 
@@ -629,9 +635,9 @@ class HlmMiddleware(object):
         # First get list of objects
         objects = []
         if obj:
-            self.logger.debug('Object request: %s', str(obj))
-            objects.append(str(obj))
-        else:
+            self.logger.debug('Object request: %s', obj)
+            objects.append(str(obj.encode('utf-8')))
+        else: # TODO test container migration with unicode path and/or objects
             self.logger.debug('Container request')
             # Get list of objects
             objects = self.get_list_of_objects(account, container)
@@ -901,7 +907,7 @@ class HlmMiddleware(object):
             # Pick a request, currently the oldest one
             # TODO: consider merging requests, prioritizing recalls
             for obj in objects:
-                request = str(obj['name'])
+                request = obj['name']
                 self.logger.debug('Pulled a request from queue: %s', request)
                 break
         return request
@@ -998,14 +1004,16 @@ class HlmMiddleware(object):
         self.logger.debug('failed: %s', str(failed_requests))
         self.response_out = []
         for preq in pending_requests:
-            self.logger.debug('pending: %s', str(preq))
-            ts, hlm_req, a, c, sp, o = self.decode_request(preq)
+            self.logger.debug('pending: %s', str(preq.encode('utf-8')))
+            ts, hlm_req, a, c, sp, o = \
+                    self.decode_request(preq.encode('utf-8'))
             if not obj and a == acc and c == con or \
                 obj and a == acc and c == con and o == obj or \
                     obj and not o and a == acc and c == con:
                 self.response_out.append(preq + '--pending')
         for freq in failed_requests:
-            ts, hlm_req, a, c, sp, o = self.decode_request(freq)
+            ts, hlm_req, a, c, sp, o = \
+                    self.decode_request(freq.encode('utf-8'))
             if not obj and a == acc and c == con or \
                 obj and a == acc and c == con and o == obj or \
                     obj and not o and a == acc and c == con:

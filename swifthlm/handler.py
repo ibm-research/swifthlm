@@ -167,8 +167,8 @@ class Handler(object):
             obj_and_file['object'] = obj_and_dev['object']
             self.logger.debug('obj: %s', obj_and_dev)
             try:
-                (account, container, obj) = split_path(obj_and_dev['object'],
-                                                       3, 3, True)
+                (account, container, obj) = split_path(
+                        obj_and_dev['object'].encode('utf-8'), 3, 3, True)
             except ValueError:
                 self.logger.debug('split_path exception')
                 raise
