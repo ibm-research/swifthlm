@@ -620,7 +620,7 @@ class HlmMiddleware(object):
         if objects_iter:
             for obj in objects_iter:
                 (valid, cache_data) = self._get_object_state_from_cache(
-                    account, container, obj['name'])
+                    account, container, (obj['name']).encode('utf-8'))
                 if not valid:
                     return False
                 objpath = '/%s/%s/%s' % (account, container, obj['name'])
