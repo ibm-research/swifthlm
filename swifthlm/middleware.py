@@ -569,7 +569,8 @@ class HlmMiddleware(object):
                 return False
             if objects_iter:
                 for obj in objects_iter:
-                    objpath = '/%s/%s/%s' % (account, container, obj['name'])
+                    objpath = '/%s/%s/%s' % (account, container, 
+                            obj['name'].encode('utf-8'))
                     if not self._put_state_to_cache(objpath, 'migrated'):
                         return False
         return True
@@ -623,7 +624,8 @@ class HlmMiddleware(object):
                     account, container, (obj['name']).encode('utf-8'))
                 if not valid:
                     return False
-                objpath = '/%s/%s/%s' % (account, container, obj['name'])
+                objpath = '/%s/%s/%s' % (account, container, 
+                        (obj['name']).encode('utf-8'))
                 self.response_out[objpath] = cache_data
         return True
 
