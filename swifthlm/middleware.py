@@ -521,19 +521,19 @@ class HlmMiddleware(object):
     def _get_object_state_from_cache(self, account, container, object):
         memcache_key = 'hlm/%s/%s/%s' % (account, container,
                                          object)
-        #sladel
+        # sladel
         self.logger.debug('memcache_key: %s', memcache_key)
-        #sladel
+        # sladel
         cache_data = None
         try:
             cache_data = self.mcache.get(memcache_key)
             if cache_data is None:
                 return False, None
-            #sladel
+            # sladel
             self.logger.debug('cache_data: %s', cache_data)
-            #sladel
-            ##self.logger.debug('Got cache entry %s: %s', memcache_key,
-            ##                  cache_data)
+            # sladel
+            # self.logger.debug('Got cache entry %s: %s', memcache_key,
+            #                   cache_data)
 
         except MemcacheConnectionError:
             self.logger.error('Memcache connection error')
@@ -569,8 +569,8 @@ class HlmMiddleware(object):
                 return False
             if objects_iter:
                 for obj in objects_iter:
-                    objpath = '/%s/%s/%s' % (account, container, 
-                            obj['name'].encode('utf-8'))
+                    objpath = '/%s/%s/%s' % (account, container,
+                                             obj['name'].encode('utf-8'))
                     if not self._put_state_to_cache(objpath, 'migrated'):
                         return False
         return True
@@ -624,8 +624,8 @@ class HlmMiddleware(object):
                     account, container, (obj['name']).encode('utf-8'))
                 if not valid:
                     return False
-                objpath = '/%s/%s/%s' % (account, container, 
-                        (obj['name']).encode('utf-8'))
+                objpath = '/%s/%s/%s' % (account, container,
+                                         (obj['name']).encode('utf-8'))
                 self.response_out[objpath] = cache_data
         return True
 
@@ -639,7 +639,7 @@ class HlmMiddleware(object):
         if obj:
             self.logger.debug('Object request: %s', obj)
             objects.append(str(obj.encode('utf-8')))
-        else: # TODO test container migration with unicode path and/or objects
+        else:  # TODO test container migration with unicode path and/or objects
             self.logger.debug('Container request')
             # Get list of objects
             objects = self.get_list_of_objects(account, container)
@@ -805,11 +805,11 @@ class HlmMiddleware(object):
         proxy_app_config = proxy_config.get('app:proxy-server', None)
         allow_acc_mgmt = proxy_app_config.get('allow_account_management', None)
         self.logger.debug('allow_account_management: %s\n',
-                allow_acc_mgmt)
+                          allow_acc_mgmt)
         if allow_acc_mgmt == 'true':
             ic_conf_body_use = re.sub(r'allow_account_management = .+\n',
-                    r'allow_account_management = true\n',
-                    ic_conf_body)
+                                      r'allow_account_management = true\n',
+                                      ic_conf_body)
         else:
             ic_conf_body_use = ic_conf_body
         if not internal_client_conf_path:
@@ -821,7 +821,7 @@ class HlmMiddleware(object):
         else:
             internal_client_conf = internal_client_conf_path
         self.logger.debug('internal_client_conf: %s\n',
-                str(internal_client_conf))
+                          str(internal_client_conf))
         try:
             self.swift = InternalClient(
                 internal_client_conf, 'SwiftHLM Middleware', request_tries)
@@ -1008,14 +1008,14 @@ class HlmMiddleware(object):
         for preq in pending_requests:
             self.logger.debug('pending: %s', str(preq.encode('utf-8')))
             ts, hlm_req, a, c, sp, o = \
-                    self.decode_request(preq.encode('utf-8'))
+                self.decode_request(preq.encode('utf-8'))
             if not obj and a == acc and c == con or \
                 obj and a == acc and c == con and o == obj or \
                     obj and not o and a == acc and c == con:
                 self.response_out.append(preq + '--pending')
         for freq in failed_requests:
             ts, hlm_req, a, c, sp, o = \
-                    self.decode_request(freq.encode('utf-8'))
+                self.decode_request(freq.encode('utf-8'))
             if not obj and a == acc and c == con or \
                 obj and a == acc and c == con and o == obj or \
                     obj and not o and a == acc and c == con:

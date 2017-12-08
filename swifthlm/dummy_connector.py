@@ -101,6 +101,7 @@ from swift.common.utils import hash_path
 
 import sqlite3
 
+
 # SwiftHLM Backend Connector
 class SwiftHlmBackendConnector(object):
 
@@ -162,19 +163,19 @@ class SwiftHlmBackendConnector(object):
 
     # This exemplary method submits request to Backend and gets Response from
     # Backend. The dummy backend stores object state (resident, premigrated,
-    # or migrated) into a SQL database on file, using the object replica 
+    # or migrated) into a SQL database on file, using the object replica
     # filepath as the key and its status as the value.
     # The database file is stored under /tmp/swifthlm_dummy_backend.db, which
     # upon need could be made configurable.
-    # TODO: consider making the database file location configurable. 
+    # TODO: consider making the database file location configurable.
     def __submit_request_to_backend_get_response(self):
         self.logger.debug('Submitting request to backend')
         database = '/tmp/swifthlm_dummy_backend.db'
         db_backend = SwiftHlmDummyBackendDb(database)
-        if db_backend == None:
-            self.logger.debug('failed to connect to db_backend db')  
+        if db_backend is None:
+            self.logger.debug('failed to connect to db_backend db')
         self.logger.debug('before migrate')
-        # migrate 
+        # migrate
         if self.__request_out['request'] == 'migrate':
             for object_file in self.__request_out['objects']:
                 try:
@@ -186,7 +187,7 @@ class SwiftHlmBackendConnector(object):
             self.__response_in = 0
             return
         self.logger.debug('before recall')
-        # recall 
+        # recall
         if self.__request_out['request'] == 'recall':
             for object_file in self.__request_out['objects']:
                 db_backend.query(object_file['file'])
@@ -221,17 +222,18 @@ class SwiftHlmBackendConnector(object):
         # the incoming response from the backend
         self.__response_out = self.__response_in
 
+
 # SwiftHLM Dummy Backend Database
 class SwiftHlmDummyBackendDb:
 
-    def __init__(self,dbname):
+    def __init__(self, dbname):
         self.connection = None
         self.cursor = None
         self.database = dbname
         self.table = 'status_table'
         self.key = 'item_path'
         self.value = 'status'
-        self.status = None # to store queried status
+        self.status = None  # to store queried status
         self.connect()
 
     def connect(self):
@@ -243,9 +245,9 @@ class SwiftHlmDummyBackendDb:
                     database (%s)', err)
             reise
         self.cursor.execute('CREATE TABLE IF NOT EXISTS {tn} \
-                        ({kn} TEXT PRIMARY KEY, {vn} TEXT)'\
-                        .format(tn=self.table, kn=self.key, vn=self.value))
-        #self.connection.commit() # is it needed at this step?
+                            ({kn} TEXT PRIMARY KEY, {vn} TEXT)'
+                            .format(tn=self.table, kn=self.key, vn=self.value))
+        # self.connection.commit() # is it needed at this step?
 
     def close(self):
         if self.connection:
@@ -255,18 +257,20 @@ class SwiftHlmDummyBackendDb:
 
     def insert(self, path, status):
         c = self.cursor
-        c.execute('REPLACE INTO {tn} ({kn}, {vn}) VALUES (?, ?)'\
-        .format(tn=self.table, kn=self.key, vn=self.value), (path, status))
+        c.execute('REPLACE INTO {tn} ({kn}, {vn}) VALUES (?, ?)'
+                  .format(tn=self.table, kn=self.key, vn=self.value),
+                  (path, status))
 
     def query(self, path):
         c = self.cursor
-        c.execute('SELECT {vn} FROM {tn} WHERE {kn}=?'\
-        .format(tn=self.table, kn=self.key, vn=self.value), (path, )) #..h, )!!
+        c.execute('SELECT {vn} FROM {tn} WHERE {kn}=?'
+                  .format(tn=self.table, kn=self.key, vn=self.value),
+                  (path, ))  # ..h, )!!
         status = c.fetchone()
         if status:
             self.status = str(status[0])
         else:
-            self.status = 'resident' # TODO: Handling 'unknown' status
+            self.status = 'resident'  # TODO: Handling 'unknown' status
 
 if __name__ == '__main__':
     # SwiftHlmConnector class is not assumed to be used standalone, instead it
