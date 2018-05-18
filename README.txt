@@ -100,15 +100,12 @@ the implementation file for each component.
 3. Install
 ===============================================
 
-    Unpack swifthlm.tgz into /opt/swifthlm
-    Alternatively get it from https://github.com/ibm-research/swifthlm, and
-    store into /opt/swifthlm
+    Get code, e.g.: 
+    git clone https://github.com/ibm-research/swifthlm
 
-    Then:
-    # cd /opt/swifthlm
-    # python setup.py install
-    Note: in some cases the install command needs to be run two times (if
-    running it first time shows error)
+    Install:
+    cd swifthlm
+    python setup.py install
 
 4. Configure
 ===============================================
@@ -184,9 +181,21 @@ the implementation file for each component.
 4.4 Configure SwiftHLM to use a specific connector/backend:
 
     More information about integrating and configuring HLM backends is provided
-    in Section 6. HLM Backend. If SwiftHLM is not configured to use a specific
-    connector/backend, a dummy connector/backend provided and installed as part
-    of SwiftHLM will be used as the default one.
+    in Section 6. HLM Backend. 
+    
+    If SwiftHLM is not configured to use a specific connector/backend, a dummy
+    connector/backend provided and installed as part of SwiftHLM will be used
+    as the default one.
+
+    Connector for LTFS DM backend is installed as part of SwiftHLM
+    installation, but is not enabled by default (see Section 6. for how to do
+    that). In order to enable and use LTFS DM connector, LTFS DM backend needs
+    to be installed from https://github.com/ibm-research/LTFS-Data-Management
+    LTFS DM is an open source software that adds tape storage to a standard
+    disk based Linux filesystem - it keeps the original namespace of the disk
+    file system exposed to users and applications (via standard POSIX
+    interface) but allows migrating file data to and from attached tape
+    storage. 
 
 5. Activate
 ===============================================
@@ -235,31 +244,75 @@ swifthlm/object-server.conf.merge file to /etc/swift/object-server.conf, and
 edditing the corresponding configuration values to match the specific
 connector/backend. 
 
-Example of the content of edited swifthlm/object-server.conf.merge, to use it
-with IBM Spectrum Archive storage backend (assuming the corresponding connector
-is available and installed - DISCLAIMER: availability or not availability of
-such a connector for IBM Spectrum Archive is not stated or implied by this
-configuration example) is:
+Here is the example of the content of swifthlm/object-server.conf.merge edited
+for use with LTFS Data Management backend (open sourced at
+https://github.com/ibm-research/LTFS-Data-Management) after it is appended to
+/etc/swift/object-server.conf:
 
+#
 ### High latency media (hlm) configuration on storage node
 [hlm]
 ## You can override the default log level here:
 # set log_level = INFO
 set log_level = DEBUG
-## SwiftHLM Connector (and consequently the Backend) is declared here:
+## Declare SwiftHLM Connector (and consequently the Backend) to be used:
 #
-# Dummy Connector/Backend - used by default if no other connector is defined
+# Dummy Connector/Backend - used by default if no other connector is
+# provided/declared
 #swifthlm_connector_module = swifthlm.dummy_connector
 #
-# IBM Connector/Backend
-swifthlm_connector_module = swifthlmibmsa.ibmsa_swifthlm_connector
+# IBM Spectrum Archive and IBM Spectrum Protect (proprietary) Connector/Backend
+#swifthlm_connector_module = swifthlmibmsa.ibmsa_swifthlm_connector
+#
+# LTFS DM (open source) Connector/Backend
+# Note: this connector is installed by default as part of SwiftHLM install, but
+# it is not activated (declared to use) by default. LTFS DM backend needs to be
+# installed separately (https://github.com/ibm-research/LTFS-Data-Management)
+swifthlm_connector_module = swifthlm.ltfsdm_connector
 #
 # Your own Connector/Backend
-# Define EITHER connector_module (if installed as a python module), e.g.:
-#swifthlm_connector_module = swifthlmibmsa.ibmsa_swifthlm_connector
-# OR connector_dir and connector_filename (if installed that way), e.g.:
-#swifthlm_connector_dir = /opt/ibm/swifthlmconnector
+# EITHER define the connector python module name (if installed as a python
+# module), e.g.:
+# swifthlm_connector_module = swifthlmxxx.opt_disc_connector
+# OR specify the connector directory path and filename:
+#swifthlm_connector_dir = /opt/xxx/swifthlmconnector
 #swifthlm_connector_filename = connector.py
+#
+## Connector/Backend specific settings
+#
+## LTFS DM Connector settings
+[ltfsdm]
+# Path to ltfsdm binary. If not set, /usr/local/bin/ltfsdm is used by default.
+ltfsdm_path = /usr/local/bin/ltfsdm
+# Path to the directory to use for temporary files
+connector_tmp_dir = /tmp/swifthlm
+# Tape storage pool to use for storing objects data
+tape_storage_pool = swiftpool
+#
+# IBM Spectrum Archive/Protect Connector settings
+[ibmsasp]
+# IBM Spectrum Archive/Protect Connector configuration
+connector_tmp_dir = /tmp/swifthlm
+# IBM Spectrum Archive/Protect or LTFS DM Backend configuration
+gpfs_filesystem_or_fileset = /mnt/gpfs
+library = library0
+tape_storage_pool = swiftpool@library0
+
+
+
+To use SwiftHLM with IBM Spectrum Archive or IBM Spectrum Protect connector and
+backend (proprietary, see
+http://www.redbooks.ibm.com/abstracts/redp5430.html?Open for how to get,
+install and configure it), in the above shown content appended to
+/etc/swift/object-server.conf, change the following 2 lines:
+
+#swifthlm_connector_module = swifthlmibmsa.ibmsa_swifthlm_connector
+swifthlm_connector_module = swifthlm.ltfsdm_connector
+
+into:
+
+swifthlm_connector_module = swifthlmibmsa.ibmsa_swifthlm_connector
+#swifthlm_connector_module = swifthlm.ltfsdm_connector
 
 
 7. External Interface and Usage Examples 
